@@ -1,0 +1,27 @@
+{
+  "name": "@bufbuild/protobuf-benchmarks",
+  "version": "2.11.0",
+  "private": true,
+  "scripts": {
+    "bench": "tsx src/index.ts",
+    "bench:create": "tsx src/bench-create.ts",
+    "bench:toBinary": "tsx src/bench-toBinary.ts",
+    "bench:create-toBinary": "tsx src/bench-create-toBinary.ts",
+    "bench:fromJson-path": "tsx src/bench-fromJson-path.ts",
+    "build": "../node_modules/typescript/bin/tsc --noEmit",
+    "generate": "buf generate",
+    "format": "biome format --write",
+    "license-header": "license-header",
+    "lint": "biome lint --error-on-warnings"
+  },
+  "license": "Apache-2.0",
+  "type": "module",
+  "dependencies": {
+    "@bufbuild/buf": "^1.66.1",
+    "@bufbuild/protobuf": "2.11.0",
+    "@bufbuild/protoc-gen-es": "2.11.0",
+    "tinybench": "^4.0.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.6.3"
+  }
+}
