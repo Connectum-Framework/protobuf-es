@@ -111,16 +111,16 @@ rendering helpers.
 
 | Fixture                            |  Bytes | toBinary | toBinaryFast | protobufjs | Best                 |
 | ---------------------------------- | -----: | -------: | -----------: | ---------: | -------------------- |
-| SimpleMessage                      |     19 |    1.06M |        1.23M |          - | toBinaryFast (1.16x) |
-| ExportTraceRequest (100 spans)     | 32,926 |    1,778 |        3,218 |      2,676 | toBinaryFast (1.20x) |
-| ExportMetricsRequest (50 series)   | 17,696 |    3,316 |        6,429 |          - | toBinaryFast (1.94x) |
-| ExportLogsRequest (100 records)    | 21,319 |    3,257 |        6,032 |          - | toBinaryFast (1.85x) |
-| K8sPodList (20 pods)               | 28,900 |    3,458 |        5,444 |          - | toBinaryFast (1.57x) |
-| GraphQLRequest                     |    624 |  256,431 |      312,765 |          - | toBinaryFast (1.22x) |
-| GraphQLResponse                    |  1,366 |  293,549 |      402,902 |          - | toBinaryFast (1.37x) |
-| RpcRequest                         |    501 |  379,472 |      455,529 |          - | toBinaryFast (1.20x) |
-| RpcResponse                        |    602 |  579,153 |      766,432 |          - | toBinaryFast (1.32x) |
-| StressMessage (depth=8, width=200) | 12,868 |   10,848 |       18,034 |          - | toBinaryFast (1.66x) |
+| SimpleMessage                      |     19 |    1.39M |        1.81M |          - | toBinaryFast (1.30x) |
+| ExportTraceRequest (100 spans)     | 32,926 |      525 |        2,501 |      3,110 | protobufjs (1.24x)   |
+| ExportMetricsRequest (50 series)   | 17,696 |      891 |        4,773 |          - | toBinaryFast (5.36x) |
+| ExportLogsRequest (100 records)    | 21,319 |      880 |        3,772 |          - | toBinaryFast (4.28x) |
+| K8sPodList (20 pods)               | 28,900 |      712 |        3,510 |          - | toBinaryFast (4.93x) |
+| GraphQLRequest                     |    624 |  113,985 |      214,019 |          - | toBinaryFast (1.88x) |
+| GraphQLResponse                    |  1,366 |  145,325 |      558,123 |          - | toBinaryFast (3.84x) |
+| RpcRequest                         |    501 |  111,194 |      373,729 |          - | toBinaryFast (3.36x) |
+| RpcResponse                        |    602 |  171,243 |      639,426 |          - | toBinaryFast (3.73x) |
+| StressMessage (depth=8, width=200) | 12,868 |    2,568 |       14,378 |          - | toBinaryFast (5.60x) |
 
 <!--BENCHMARK_TABLE_END-->
 
