@@ -70,6 +70,23 @@ function formatOps(ops: number | undefined): string {
   return Math.round(ops).toString();
 }
 
+/**
+ * Compact ops/sec formatter for bar-top labels. The markdown table above
+ * has room for thousand-separated digits ("2,501"); the chart does not —
+ * three bars per fixture group leave ~60 px for a label and a long number
+ * either clips the neighbour or crosses the grid line. This variant is
+ * deliberately lossy so the label fits inside the per-bar column even at
+ * the narrowest groupings we render (SimpleMessage, Rpc*).
+ */
+function formatOpsCompact(ops: number): string {
+  if (!Number.isFinite(ops) || ops <= 0) return "";
+  if (ops >= 1_000_000) return `${(ops / 1_000_000).toFixed(2)}M`;
+  if (ops >= 100_000) return `${Math.round(ops / 1000)}K`;
+  if (ops >= 10_000) return `${(ops / 1000).toFixed(1)}K`;
+  if (ops >= 1000) return `${(ops / 1000).toFixed(2)}K`;
+  return Math.round(ops).toString();
+}
+
 function formatBytes(bytes: number | undefined): string {
   if (bytes === undefined || bytes === 0) return "-";
   return new Intl.NumberFormat("en-US").format(bytes);
@@ -274,7 +291,11 @@ export function generateBenchmarkChart(results: BenchmarkResult[]): string {
   const groupWidth = ENCODERS.length * barWidth + groupGap;
   const marginLeft = 90;
   const marginRight = 20;
-  const marginTop = 60;
+  // marginTop accounts for: title (y=26), legend row (legendY = marginTop -
+  // 24), and the rotated value labels we draw above each bar — those can
+  // extend ~35 px up-and-right depending on label length, so keep the top
+  // margin generous enough to prevent clipping on the tallest bars.
+  const marginTop = 85;
   const marginBottom = 150;
   const chartHeight = 320;
   const chartWidth = n * groupWidth;
@@ -368,6 +389,22 @@ export function generateBenchmarkChart(results: BenchmarkResult[]): string {
           `    <title>${escapeXml(enc)}: ${Math.round(r.opsPerSec).toLocaleString("en-US")} ops/sec (${g.fixture})</title>\n` +
           `  </rect>\n`,
       );
+      // Value label above the bar. Rotated -60 degrees so it reads upward
+      // and does not overlap the neighbouring encoder's bar at narrow
+      // groupings (3 bars × 20 px per fixture). Anchored at `start` so
+      // the text extends up-and-right from the bar-top pivot — visually
+      // that places the label over the bar it describes rather than
+      // drifting into the next group.
+      const labelText = formatOpsCompact(r.opsPerSec);
+      if (labelText) {
+        const labelPivotX = barX + (barWidth - 2) / 2;
+        const labelPivotY = barTop - 3;
+        parts.push(
+          `  <g transform="translate(${labelPivotX}, ${labelPivotY}) rotate(-60)">\n` +
+            `    <text text-anchor="start" font-size="10" fill="#333">${escapeXml(labelText)}</text>\n` +
+            `  </g>\n`,
+        );
+      }
     }
     // Fixture label rotated to avoid clipping against neighbours.
     const labelX = groupX + (ENCODERS.length * barWidth) / 2;
@@ -393,6 +430,201 @@ export function generateBenchmarkChart(results: BenchmarkResult[]): string {
     legendX += 18 + enc.length * 7 + 16;
   }
   parts.push(`  </g>\n`);
+
+  parts.push(`</svg>\n`);
+  return parts.join("");
+}
+
+// --- SVG delta chart -------------------------------------------------------
+
+/**
+ * Per-fixture speed improvement of `toBinaryFast` over the two baselines we
+ * track: protobuf-es's reflective `toBinary`, and `protobufjs` where the
+ * pbjs static-module codegen is available. The main chart is log-scale, so
+ * a 5x improvement looks almost identical to a 1.5x improvement — the
+ * delta chart restores the linear comparison.
+ *
+ * Bars render the ratio minus one, i.e. "toBinaryFast is N% faster than
+ * baseline". Negative values (fast encoder slower than baseline) cross the
+ * axis. We cap bar length but keep the numeric label honest — overflowing
+ * fixtures (e.g. 500%+) still show the full percentage in the label.
+ */
+export function generateBenchmarkDeltaChart(
+  results: BenchmarkResult[],
+): string {
+  const groups = groupByFixture(results);
+
+  // Two delta series per fixture (one row per baseline). We plot only
+  // fixtures that have at least a toBinary+toBinaryFast pair, because the
+  // protobuf-es delta is the headline number. The protobufjs delta is
+  // drawn on top when available — missing pbjs stubs leave that row empty
+  // without shrinking the chart.
+  interface DeltaRow {
+    fixture: string;
+    vsToBinaryPct?: number;
+    vsProtobufjsPct?: number;
+  }
+  const rows: DeltaRow[] = [];
+  for (const g of groups) {
+    const fast = g.perEncoder.toBinaryFast?.opsPerSec;
+    if (!fast || fast <= 0) continue;
+    const slow = g.perEncoder.toBinary?.opsPerSec;
+    const pbjs = g.perEncoder.protobufjs?.opsPerSec;
+    rows.push({
+      fixture: g.fixture,
+      vsToBinaryPct: slow && slow > 0 ? (fast / slow - 1) * 100 : undefined,
+      vsProtobufjsPct: pbjs && pbjs > 0 ? (fast / pbjs - 1) * 100 : undefined,
+    });
+  }
+
+  // Layout. Horizontal bars work better than vertical here because fixture
+  // names are long and % values are short — the chart reads like a table
+  // with the ratio encoded as bar length. One row per fixture, two bars
+  // per row (stacked short-to-long vertically within the row).
+  const rowHeight = 42;
+  const barHeight = 14;
+  const marginLeft = 250; // room for fixture names
+  const marginRight = 90; // room for value labels on long bars
+  const marginTop = 80;
+  const marginBottom = 40;
+  const chartHeight = rows.length * rowHeight;
+  const chartWidth = 520;
+  const totalWidth = marginLeft + chartWidth + marginRight;
+  const totalHeight = marginTop + chartHeight + marginBottom;
+
+  // Cap bar length at the largest positive delta, with a floor of 300%
+  // so small-fixture gains (e.g. 30% on SimpleMessage) don't render as
+  // a pixel-wide sliver just because one outlier fixture is 500%+.
+  const maxPct = Math.max(
+    300,
+    ...rows.flatMap((r) => [r.vsToBinaryPct ?? 0, r.vsProtobufjsPct ?? 0]),
+  );
+  // Include the most negative delta so bars can grow leftward across the
+  // zero baseline without clipping. If everything is positive we keep the
+  // zero-line flush with the left edge.
+  const minPct = Math.min(
+    0,
+    ...rows.flatMap((r) => [r.vsToBinaryPct ?? 0, r.vsProtobufjsPct ?? 0]),
+  );
+  const pctRange = maxPct - minPct;
+  // Zero-line X. If minPct < 0 we reserve a slice of the chart width for
+  // negative-bar growth; otherwise the zero-line sits at marginLeft.
+  const zeroX = marginLeft + (chartWidth * -minPct) / pctRange;
+
+  const pctToWidth = (pct: number) => (Math.abs(pct) / pctRange) * chartWidth;
+
+  // Colors. Re-use the encoder palette so the legend cross-references the
+  // main chart cleanly: "vs toBinary" uses the toBinary grey, "vs
+  // protobufjs" uses the protobufjs blue — both describe the baseline, not
+  // toBinaryFast itself, which is the common subject of both bars.
+  const colorVsToBinary = ENCODER_COLORS.toBinary;
+  const colorVsProtobufjs = ENCODER_COLORS.protobufjs;
+
+  const parts: string[] = [];
+  parts.push(
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<svg xmlns="http://www.w3.org/2000/svg" version="1.1" ` +
+      `width="${totalWidth}" height="${totalHeight}" ` +
+      `viewBox="0 0 ${totalWidth} ${totalHeight}" class="chart">\n` +
+      `  <style>\n` +
+      `    <![CDATA[\n` +
+      `      text { font: 12px Verdana, Helvetica, Arial, sans-serif; }\n` +
+      `      .title { font-size: 16px; font-weight: bold; }\n` +
+      `      .axis { stroke: #333; stroke-width: 1; }\n` +
+      `      .grid { stroke: #ebebeb; stroke-width: 1; }\n` +
+      `      .zero { stroke: #333; stroke-width: 1.5; }\n` +
+      `    ]]>\n` +
+      `  </style>\n`,
+  );
+
+  // Title.
+  parts.push(
+    `  <text x="${totalWidth / 2}" y="28" text-anchor="middle" class="title">` +
+      `toBinaryFast speedup vs baselines (linear %)` +
+      `</text>\n`,
+  );
+  parts.push(
+    `  <text x="${totalWidth / 2}" y="46" text-anchor="middle" font-size="11" fill="#666">` +
+      `higher is better — "+300%" means 4x throughput` +
+      `</text>\n`,
+  );
+
+  // Legend row (above the chart body).
+  const legendY = marginTop - 18;
+  parts.push(
+    `  <g transform="translate(${marginLeft}, ${legendY})">\n` +
+      `    <rect x="0" y="0" width="14" height="10" fill="${colorVsToBinary}" />\n` +
+      `    <text x="18" y="9">vs toBinary</text>\n` +
+      `    <rect x="140" y="0" width="14" height="10" fill="${colorVsProtobufjs}" />\n` +
+      `    <text x="158" y="9">vs protobufjs</text>\n` +
+      `  </g>\n`,
+  );
+
+  // Vertical grid lines every 100%. Draw dashed lines over the full
+  // chartHeight so rows read like a tufte-minimal bar chart — no heavy
+  // axis clutter, just the zero line and the percentage scale.
+  for (let pct = Math.ceil(minPct / 100) * 100; pct <= maxPct; pct += 100) {
+    const x = marginLeft + ((pct - minPct) / pctRange) * chartWidth;
+    parts.push(
+      `  <line class="grid" x1="${x}" x2="${x}" y1="${marginTop}" y2="${marginTop + chartHeight}" />\n` +
+        `  <text x="${x}" y="${marginTop - 3}" text-anchor="middle" font-size="10" fill="#777">${pct}%</text>\n`,
+    );
+  }
+
+  // Zero baseline (bold).
+  parts.push(
+    `  <line class="zero" x1="${zeroX}" x2="${zeroX}" y1="${marginTop}" y2="${marginTop + chartHeight}" />\n`,
+  );
+
+  // One row per fixture. Each row renders two stacked half-height bars so
+  // the baseline-vs-baseline comparison is read vertically within the row.
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowY = marginTop + i * rowHeight;
+    // Fixture label on the left, vertically centered in the row.
+    parts.push(
+      `  <text x="${marginLeft - 8}" y="${rowY + rowHeight / 2 + 4}" text-anchor="end">${escapeXml(row.fixture)}</text>\n`,
+    );
+
+    // vs toBinary bar (upper half of the row).
+    if (row.vsToBinaryPct !== undefined) {
+      const pct = row.vsToBinaryPct;
+      const w = pctToWidth(pct);
+      const y = rowY + (rowHeight / 2 - barHeight - 2);
+      const x = pct >= 0 ? zeroX : zeroX - w;
+      parts.push(
+        `  <rect x="${x}" y="${y}" width="${w}" height="${barHeight}" fill="${colorVsToBinary}">\n` +
+          `    <title>${escapeXml(row.fixture)}: toBinaryFast is ${pct.toFixed(1)}% faster than toBinary</title>\n` +
+          `  </rect>\n`,
+      );
+      // Label outside bar (right side for positive, left for negative).
+      const labelX = pct >= 0 ? x + w + 4 : x - 4;
+      const labelAnchor = pct >= 0 ? "start" : "end";
+      parts.push(
+        `  <text x="${labelX}" y="${y + barHeight - 3}" text-anchor="${labelAnchor}" font-size="10" fill="#333">${pct.toFixed(0)}%</text>\n`,
+      );
+    }
+
+    // vs protobufjs bar (lower half of the row). Missing pbjs measurement
+    // means an empty lower half — visually signals "no baseline" rather
+    // than faking a zero.
+    if (row.vsProtobufjsPct !== undefined) {
+      const pct = row.vsProtobufjsPct;
+      const w = pctToWidth(pct);
+      const y = rowY + rowHeight / 2 + 2;
+      const x = pct >= 0 ? zeroX : zeroX - w;
+      parts.push(
+        `  <rect x="${x}" y="${y}" width="${w}" height="${barHeight}" fill="${colorVsProtobufjs}">\n` +
+          `    <title>${escapeXml(row.fixture)}: toBinaryFast vs protobufjs = ${pct.toFixed(1)}%</title>\n` +
+          `  </rect>\n`,
+      );
+      const labelX = pct >= 0 ? x + w + 4 : x - 4;
+      const labelAnchor = pct >= 0 ? "start" : "end";
+      parts.push(
+        `  <text x="${labelX}" y="${y + barHeight - 3}" text-anchor="${labelAnchor}" font-size="10" fill="#333">${pct.toFixed(0)}%</text>\n`,
+      );
+    }
+  }
 
   parts.push(`</svg>\n`);
   return parts.join("");

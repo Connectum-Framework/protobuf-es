@@ -17,7 +17,7 @@
     "bench:report": "tsx src/report.ts",
     "build": "../node_modules/typescript/bin/tsc --noEmit",
     "generate": "buf generate && npm run generate:protobufjs",
-    "generate:protobufjs": "mkdir -p src/gen-protobufjs && pbjs -t static-module -w commonjs --force-long -o src/gen-protobufjs/nested.cjs proto/nested.proto",
+    "generate:protobufjs": "mkdir -p src/gen-protobufjs && pbjs -t static-module -w commonjs --force-long -r bench_small -o src/gen-protobufjs/small.cjs proto/small.proto && pbjs -t static-module -w commonjs --force-long -r bench_nested -o src/gen-protobufjs/nested.cjs proto/nested.proto && pbjs -t static-module -w commonjs --force-long -r bench_otel_metrics -o src/gen-protobufjs/otel-metrics.cjs proto/otel-metrics.proto && pbjs -t static-module -w commonjs --force-long -r bench_otel_logs -o src/gen-protobufjs/otel-logs.cjs proto/otel-logs.proto && pbjs -t static-module -w commonjs --force-long -r bench_k8s_pod -o src/gen-protobufjs/k8s-pod.cjs proto/k8s-pod.proto && pbjs -t static-module -w commonjs --force-long -r bench_graphql -o src/gen-protobufjs/graphql.cjs proto/graphql.proto && pbjs -t static-module -w commonjs --force-long -r bench_rpc_simple -o src/gen-protobufjs/rpc-simple.cjs proto/rpc-simple.proto && pbjs -t static-module -w commonjs --force-long -r bench_stress -o src/gen-protobufjs/stress.cjs proto/stress.proto",
     "format": "biome format --write",
     "license-header": "license-header",
     "lint": "biome lint --error-on-warnings"
