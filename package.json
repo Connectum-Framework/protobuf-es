@@ -13,6 +13,7 @@
     "packages/protobuf-example",
     "packages/upstream-protobuf",
     "packages/typescript-compat/*",
+    "benchmarks",
     "deno/conformance",
     "bun/conformance"
   ],

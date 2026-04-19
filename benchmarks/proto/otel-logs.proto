@@ -1,0 +1,78 @@
+// Copyright 2021-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+package bench.v1;
+
+// Simplified subset of the OTLP logs export request. Modelled after
+// opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest. Local
+// AnyValue/KeyValue/Resource/Scope prefixed with `Log` to avoid name
+// collision with nested.proto when compiled together.
+
+message LogAnyValue {
+  oneof value {
+    string string_value = 1;
+    bool bool_value = 2;
+    int64 int_value = 3;
+    double double_value = 4;
+    bytes bytes_value = 7;
+  }
+}
+
+message LogKeyValue {
+  string key = 1;
+  LogAnyValue value = 2;
+}
+
+message LogInstrumentationScope {
+  string name = 1;
+  string version = 2;
+  repeated LogKeyValue attributes = 3;
+}
+
+message LogResource {
+  repeated LogKeyValue attributes = 1;
+}
+
+// SeverityNumber replicates the OTLP severity enum as plain int32 — we
+// avoid proto3 enums in the fixture because the fast path + protobufjs
+// handling of unknown enum values complicates the comparison.
+message LogRecord {
+  fixed64 time_unix_nano = 1;
+  fixed64 observed_time_unix_nano = 11;
+  int32 severity_number = 2;
+  string severity_text = 3;
+  LogAnyValue body = 5;
+  repeated LogKeyValue attributes = 6;
+  uint32 dropped_attributes_count = 7;
+  fixed32 flags = 8;
+  bytes trace_id = 9;
+  bytes span_id = 10;
+}
+
+message ScopeLogs {
+  LogInstrumentationScope scope = 1;
+  repeated LogRecord log_records = 2;
+  string schema_url = 3;
+}
+
+message ResourceLogs {
+  LogResource resource = 1;
+  repeated ScopeLogs scope_logs = 2;
+  string schema_url = 3;
+}
+
+message ExportLogsRequest {
+  repeated ResourceLogs resource_logs = 1;
+}
