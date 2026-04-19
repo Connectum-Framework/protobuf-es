@@ -12,6 +12,7 @@
     "bench:comparison": "tsx src/bench-comparison-protobufjs.ts",
     "bench:matrix": "tsx src/bench-matrix.ts",
     "bench:memory": "node --expose-gc --import tsx src/bench-memory.ts",
+    "bench:report": "tsx src/report.ts",
     "build": "../node_modules/typescript/bin/tsc --noEmit",
     "generate": "buf generate && npm run generate:protobufjs",
     "generate:protobufjs": "pbjs -t static-module -w commonjs --force-long -o src/gen-protobufjs/nested.cjs proto/nested.proto",
