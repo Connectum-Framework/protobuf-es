@@ -61,11 +61,7 @@ function assertParity<Desc extends DescMessage>(
 
 void suite("wire/schema-plan — toBinaryFast parity", () => {
   test("scalar-only message (zero values)", () => {
-    assertParity(
-      ScalarValuesMessageSchema,
-      {},
-      "all defaults",
-    );
+    assertParity(ScalarValuesMessageSchema, {}, "all defaults");
   });
 
   test("scalar-only message (every scalar set)", () => {

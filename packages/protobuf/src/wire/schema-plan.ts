@@ -334,8 +334,7 @@ function emitField(b: PlanBuilder, f: DescField): void {
         b.emitOp3(Op.LIST_MESSAGE, slot, b.pushSubPlan(sub));
         return;
       }
-      const elementType =
-        f.listKind === "enum" ? ScalarType.INT32 : f.scalar;
+      const elementType = f.listKind === "enum" ? ScalarType.INT32 : f.scalar;
       const elementOp =
         f.listKind === "enum" ? Op.SCALAR_ENUM : scalarOp(elementType);
       if (f.packed) {
@@ -405,9 +404,7 @@ function emitOneof(b: PlanBuilder, oneof: DescOneof): void {
   b.opcodes.push(Op.ONEOF, 0, idx);
 }
 
-function buildMapEntry(
-  f: DescField & { fieldKind: "map" },
-): MapEntryPlan {
+function buildMapEntry(f: DescField & { fieldKind: "map" }): MapEntryPlan {
   const mapTag = encodeTag(f.number, WireType.LengthDelimited);
   const keyOp = scalarOp(f.mapKey);
   const keyTag = encodeTag(1, wireTypeOfScalar(f.mapKey));
@@ -597,8 +594,9 @@ export function executeSchemaPlan(
           }
         } else {
           // Numeric scalars (including int64 as bigint/string). Loose compare
-          // mirrors `isScalarZeroValue` for `== 0`.
-          // biome-ignore lint/suspicious/noDoubleEquals: intentional 0 coercion
+          // mirrors `isScalarZeroValue` for `== 0` — `v` is `unknown` here,
+          // so biome's noDoubleEquals does not fire and no suppression is
+          // needed.
           if (v == 0) {
             ip += 2;
             continue;
@@ -609,7 +607,11 @@ export function executeSchemaPlan(
           ip += 3;
           continue;
         }
-      } else if (op === Op.LIST_SCALAR || op === Op.LIST_MESSAGE || op === Op.LIST_PACKED) {
+      } else if (
+        op === Op.LIST_SCALAR ||
+        op === Op.LIST_MESSAGE ||
+        op === Op.LIST_PACKED
+      ) {
         if (v === undefined || (v as unknown[]).length === 0) {
           ip += 3;
           continue;
@@ -707,11 +709,7 @@ export function executeSchemaPlan(
         }
         writer.raw(tags[slot]);
         writer.fork();
-        executeSchemaPlan(
-          sub,
-          v as Record<string, unknown>,
-          writer,
-        );
+        executeSchemaPlan(sub, v as Record<string, unknown>, writer);
         writer.join();
         break;
       }
@@ -752,11 +750,7 @@ export function executeSchemaPlan(
         for (let i = 0, L = list.length; i < L; i++) {
           writer.raw(tag);
           writer.fork();
-          executeSchemaPlan(
-            sub,
-            list[i] as Record<string, unknown>,
-            writer,
-          );
+          executeSchemaPlan(sub, list[i] as Record<string, unknown>, writer);
           writer.join();
         }
         break;

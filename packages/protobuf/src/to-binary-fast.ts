@@ -30,10 +30,7 @@ import type { DescMessage } from "./descriptors.js";
 import type { MessageShape } from "./types.js";
 import { toBinary, type BinaryWriteOptions } from "./to-binary.js";
 import { BinaryWriter } from "./wire/binary-encoding.js";
-import {
-  compileSchemaPlan,
-  executeSchemaPlan,
-} from "./wire/schema-plan.js";
+import { compileSchemaPlan, executeSchemaPlan } from "./wire/schema-plan.js";
 
 /**
  * Serialize a message to its binary protobuf representation using the compiled
