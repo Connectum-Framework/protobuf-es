@@ -3,3 +3,5 @@ src/gen-protobufjs
 node_modules
 dist
 bench-results.json
+bench-streaming-results.json
+.heap-profs

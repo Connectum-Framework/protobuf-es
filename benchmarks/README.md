@@ -26,6 +26,8 @@ npm run bench:fromJson-path -w @bufbuild/protobuf-benchmarks
 npm run bench:comparison -w @bufbuild/protobuf-benchmarks
 npm run bench:matrix -w @bufbuild/protobuf-benchmarks
 npm run bench:memory -w @bufbuild/protobuf-benchmarks
+npm run bench:streaming -w @bufbuild/protobuf-benchmarks
+npm run bench:heap-prof -w @bufbuild/protobuf-benchmarks
 ```
 
 ## Benchmarks
@@ -40,6 +42,8 @@ npm run bench:memory -w @bufbuild/protobuf-benchmarks
 | `bench-comparison-protobufjs.ts` | Cross-library comparison: protobuf-es vs `protobufjs` (pbjs static codegen) on the same `.proto` fixture. Covers full roundtrip, encode-only, decode-only |
 | `bench-matrix.ts` | `toBinary` + `fromBinary` across the full realistic-fixture matrix (OTel traces/metrics/logs, K8s Pod list, GraphQL request/response, RPC envelope, stress). Emits a JSON summary on stdout for CI diffing |
 | `bench-memory.ts` | Heap allocations per operation (`heapUsed` delta after forced GC) for both libraries. Requires `--expose-gc` |
+| `bench-streaming.ts` | gRPC-style streaming encode throughput via `sizeDelimitedEncode`. Three stream shapes (small/medium/large) × three encoders (`toBinary`, `toBinaryFast`, `protobufjs encodeDelimited`). Emits `bench-streaming-results.json` with ops/sec + MB/s |
+| `heap-prof-driver.ts` + `scripts/analyze-heap-prof.ts` | Per-call-site allocation attribution via V8's sampling heap profiler. Replaces the coarse `heapUsed` delta in `bench-memory.ts` with function/file-level bytes |
 
 ## Methodology
 
@@ -223,11 +227,111 @@ Observations:
 - The `bench-fromJson-path` cases deliberately reproduce a known-pathological pattern. Do not read the numbers there as "protobuf-es is slow" — they show the cost of an unnecessary extra traversal. See `bench-create-toBinary` for the idiomatic path.
 - `create()` is called per sub-message in the nested benchmark (every `KeyValue`, `Span`, `ScopeSpans`, etc.) because protobuf-es's reflective `toBinary` relies on the `$typeName`-tagged prototype established by `create` — this matches the real-world cost of constructing an OTLP-like tree.
 - The comparison benchmark uses pbjs static-module codegen (ahead-of-time encoder/decoder), which is the protobufjs mode most commonly adopted in production. pbjs reflection-mode numbers would be slower and not representative of what protobufjs users actually deploy.
-- The memory benchmark uses a `heapUsed` delta across 1,000 iterations with `gc()` sandwiching the measurement. This is coarse — it does not separate young-gen allocations cleared between minor GCs from steady-state retained memory — but it is internally consistent across the libraries compared here. For finer attribution use `node --heap-prof` and inspect the resulting `.heapprofile` in Chrome DevTools.
+- The memory benchmark uses a `heapUsed` delta across 1,000 iterations with `gc()` sandwiching the measurement. This is coarse — it does not separate young-gen allocations cleared between minor GCs from steady-state retained memory — but it is internally consistent across the libraries compared here. For finer attribution use `bench-heap-prof` (see the *Heap profile attribution* section above) or open the raw `.heapprofile` in Chrome DevTools.
+
+## Streaming encode (gRPC-style)
+
+`bench-streaming` measures the cost of encoding a sequence of messages with a
+length-prefix between each — the shape gRPC and Connect transports produce on
+the wire. We use `sizeDelimitedEncode` from `@bufbuild/protobuf/wire` because
+it exercises the same `BinaryWriter.bytes()` path the encoder uses internally
+for sub-messages, and matches protobufjs's `encodeDelimited` on the wire
+(varint length prefix + body).
+
+Run:
+
+```bash
+npm run bench:streaming -w @bufbuild/protobuf-benchmarks
+```
+
+Three stream shapes cover the realistic distribution:
+
+| Stream | Shape | Payload class |
+|--------|-------|---------------|
+| small | 100 × `RpcRequest` (~500 B each) | gRPC unary chain: lots of small frames |
+| medium | 10 × `ExportTraceRequest` (100 spans each, ~33 KB each) | OTel export: batched uploads |
+| large | 5 × `K8sPodList` (20 pods each, ~29 KB each) | kubelet list pagination |
+
+Three encoders are compared per shape:
+
+- `toBinary` — reflective encoder (baseline)
+- `toBinaryFast` — L0 contiguous writer + L1 tag caching + L2 field dispatch
+- `protobufjs encodeDelimited` — ahead-of-time codegen (not available on the
+  large stream; pbjs init-shape lives with the main report in `report-pbjs.ts`)
+
+The benchmark writes `bench-streaming-results.json` with ops/sec, margin of
+error, stream byte size, and implied MB/s throughput. CI can diff that JSON
+across runs the same way it diffs `bench-results.json`.
+
+## Heap profile attribution
+
+`bench-heap-prof` replaces the coarse `heapUsed` delta in `bench-memory.ts`
+with V8's sampling heap profiler (`node --heap-prof`). Instead of "protobuf-es
+allocates N bytes per encode call", the report tells you **which call site**
+is responsible for those bytes.
+
+Run:
+
+```bash
+# Default: OTel 100-span workload, 1000 iterations, toBinaryFast encoder
+npm run bench:heap-prof -w @bufbuild/protobuf-benchmarks
+
+# Narrow to the protobuf encoder source tree (drops one-time schema
+# registration / codegen cost that dominates short runs):
+npm run bench:heap-prof -w @bufbuild/protobuf-benchmarks -- --focus-encoder
+
+# Override the workload:
+ITERATIONS=5000 FIXTURE=k8s20 ENCODER=toBinary npm run bench:heap-prof -w @bufbuild/protobuf-benchmarks -- --focus-encoder
+```
+
+Pipeline:
+
+1. `scripts/run-heap-prof.sh` launches Node with
+   `--heap-prof --heap-prof-dir=.heap-profs --heap-prof-interval=8192`.
+2. `src/heap-prof-driver.ts` pre-builds one fixture message, warms the
+   encode path, then runs a tight loop of the selected encoder.
+3. V8 writes a `.heapprofile` file to `.heap-profs/` on process exit.
+4. `scripts/analyze-heap-prof.ts` parses the profile (standard
+   `HeapProfiler.SamplingHeapProfile` JSON), aggregates `selfSize` by
+   `(function, file, line)`, and prints a markdown table of the top-N
+   allocation sites plus a per-file summary.
+
+Fixtures: `otel100` (default), `metrics50`, `k8s20`, `rpc`. Encoders:
+`toBinary`, `toBinaryFast`.
+
+Example output (`--focus-encoder`, OTel 100-span, `toBinaryFast`, 5000 iters):
+
+```
+## Top 14 allocation sites (by self bytes)
+
+| Rank | Site                                                   | Bytes   | % total | Samples |
+| ---: | ------------------------------------------------------ | ------: | ------: | ------: |
+|    1 | estimateRegularFieldSize @ …/esm/to-binary-fast.js:358 |  46.4KB |   27.0% |       2 |
+|    2 | scalarWireType       @ …/esm/to-binary-fast.js:214     |  33.1KB |   19.2% |       1 |
+|    3 | tagSize              @ …/esm/to-binary-fast.js:133     |  21.6KB |   12.5% |       1 |
+|    4 | findOneofField       @ …/esm/to-binary-fast.js:464     |  19.0KB |   11.0% |       1 |
+|    5 | estimateMessageSize  @ …/esm/to-binary-fast.js:427     |   9.3KB |    5.4% |       1 |
+|   …  |                                                        |         |         |         |
+
+## Allocation totals by source file
+
+| Rank | File                       |  Bytes | % total | Sites | Samples |
+| ---: | -------------------------- | -----: | ------: | ----: | ------: |
+|    1 | …/esm/to-binary-fast.js    | 159.9KB|   92.9% |    11 |      12 |
+|    2 | …/wire/binary-encoding.js |   8.1KB|    4.7% |     2 |       2 |
+|    3 | …/wire/size-delimited.js  |   4.1KB|    2.4% |     1 |       1 |
+```
+
+The V8 sampler is a statistical tool: it records one sample per
+`--heap-prof-interval` bytes allocated (default 8 KB). Run enough
+iterations (the default 1000 × 35 KB payload ≈ 35 MB allocated, ~4400
+samples) so the hot loop dominates the startup/registration noise. Shrink
+`--heap-prof-interval` for more samples at the cost of more overhead.
+
+The `.heapprofile` file is also directly openable in Chrome DevTools
+(Memory tab → Load) for an interactive flame graph.
 
 ## Future work
 
 - CI integration — run on PR and publish trends; flag regressions above a configurable threshold.
 - `ts-proto` comparison on the same fixtures (separate package, opt-in dependency). Would round out the "ahead-of-time codegen" comparison group alongside protobufjs.
-- Streaming write benchmarks (`sizeDelimitedEncode`) for gRPC-style workloads.
-- Allocation tracking via `node --heap-prof` for per-call-site attribution (replacing the coarse `heapUsed` delta in `bench-memory`).
