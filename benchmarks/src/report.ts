@@ -14,12 +14,16 @@
 
 // Benchmark report generator.
 //
-// Runs a multi-encoder matrix (toBinary, toBinaryFast, protobufjs-where-
-// generated) across the fixture set exposed by bench-matrix.ts, then emits:
+// Runs a multi-encoder matrix (toBinary, toBinaryFast, protobufjs) across
+// the fixture set exposed by bench-matrix.ts, then emits:
 //
 //   1. bench-results.json — machine-readable raw data for CI diffing.
-//   2. chart.svg          — grouped-bar SVG chart (log ops/sec per fixture).
-//   3. README.md          — markdown table injected between the
+//   2. chart.svg          — grouped-bar SVG chart (log ops/sec per fixture)
+//                            with numeric labels above each bar.
+//   3. chart-delta.svg    — linear-scale bar chart showing toBinaryFast's
+//                            percentage speedup over both baselines
+//                            (toBinary, protobufjs) per fixture.
+//   4. README.md          — markdown table injected between the
 //                            <!--BENCHMARK_TABLE_START/END--> markers.
 //
 // Inspired by the packages/bundle-size/src/report.ts pattern: read the raw
@@ -35,48 +39,50 @@
 // benchmark (useful for iterating on the chart layout), set
 // `BENCH_REPORT_READ_ONLY=1`.
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { createRequire } from "node:module";
-import { Bench } from "tinybench";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { toBinary, toBinaryFast } from "@bufbuild/protobuf";
+import { Bench } from "tinybench";
 
-import { SimpleMessageSchema } from "./gen/small_pb.js";
-import { ExportTraceRequestSchema } from "./gen/nested_pb.js";
-import { ExportMetricsRequestSchema } from "./gen/otel-metrics_pb.js";
-import { ExportLogsRequestSchema } from "./gen/otel-logs_pb.js";
-import { K8sPodListSchema } from "./gen/k8s-pod_pb.js";
 import {
   GraphQLRequestSchema,
   GraphQLResponseSchema,
 } from "./gen/graphql_pb.js";
+import { K8sPodListSchema } from "./gen/k8s-pod_pb.js";
+import { ExportTraceRequestSchema } from "./gen/nested_pb.js";
+import { ExportLogsRequestSchema } from "./gen/otel-logs_pb.js";
+import { ExportMetricsRequestSchema } from "./gen/otel-metrics_pb.js";
 import { RpcRequestSchema, RpcResponseSchema } from "./gen/rpc-simple_pb.js";
+import { SimpleMessageSchema } from "./gen/small_pb.js";
 import { StressMessageSchema } from "./gen/stress_pb.js";
 
 import {
-  buildSmallMessage,
-  buildExportTraceRequest,
-  buildExportMetricsRequest,
+  K8S_POD_COUNT,
+  LOGS_RECORD_COUNT,
+  METRICS_SERIES_COUNT,
+  SPAN_COUNT,
+  STRESS_ARRAY_WIDTH,
+  STRESS_DEPTH,
   buildExportLogsRequest,
-  buildK8sPodList,
+  buildExportMetricsRequest,
+  buildExportTraceRequest,
   buildGraphQLRequest,
   buildGraphQLResponse,
+  buildK8sPodList,
   buildRpcRequest,
   buildRpcResponse,
+  buildSmallMessage,
   buildStressMessage,
-  SPAN_COUNT,
-  METRICS_SERIES_COUNT,
-  LOGS_RECORD_COUNT,
-  K8S_POD_COUNT,
-  STRESS_DEPTH,
-  STRESS_ARRAY_WIDTH,
 } from "./fixtures.js";
 
 import {
   type BenchmarkResult,
   generateBenchmarkChart,
+  generateBenchmarkDeltaChart,
   generateBenchmarkMarkdownTable,
   injectTable,
 } from "./report-helpers.js";
+
+import { loadPbjsFixtures } from "./report-pbjs.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: matrix dispatch is loose by design
 type AnySchema = any;
@@ -142,81 +148,6 @@ const cases: FixtureCase[] = [
   },
 ];
 
-// protobufjs is only generated for nested.proto (the OTel traces shape),
-// via the `generate:protobufjs` script. We still want it on the chart
-// because it is the external baseline referenced in #6221; other fixtures
-// simply leave the protobufjs bar missing, which the chart + table handle.
-interface PbjsCtor {
-  create(properties: Record<string, unknown>): Record<string, unknown>;
-  encode(message: Record<string, unknown>): { finish(): Uint8Array };
-}
-
-function loadPbjsExportTraceRequest(): PbjsCtor | null {
-  try {
-    const require = createRequire(import.meta.url);
-    // biome-ignore lint/suspicious/noExplicitAny: generated pbjs has dynamic shape
-    const mod = require("./gen-protobufjs/nested.cjs") as any;
-    return mod.bench.v1.ExportTraceRequest as PbjsCtor;
-  } catch {
-    // Missing codegen is non-fatal for the report — we just skip the
-    // protobufjs bar. Running `npm run generate:protobufjs` remedies this.
-    return null;
-  }
-}
-
-/**
- * Construct a plain-JS init object for protobufjs's `ExportTraceRequest`.
- * Mirrors the init shape used in bench-comparison-protobufjs.ts, because
- * protobufjs accepts oneof fields on the parent message directly rather
- * than via the `{ case, value }` ADT protobuf-es uses — passing a
- * protobuf-es init object into pbjs silently produces an empty encode.
- */
-function buildPbjsOtelInit(): Record<string, unknown> {
-  const spans: unknown[] = [];
-  for (let i = 0; i < SPAN_COUNT; i++) {
-    const attributes: unknown[] = [];
-    for (let j = 0; j < 10; j++) {
-      let anyValue: Record<string, unknown>;
-      if (j === 2 || j === 5) {
-        anyValue = { intValue: (200 + j).toString() };
-      } else if (j === 8) {
-        anyValue = { boolValue: (i + j) % 7 === 0 };
-      } else {
-        anyValue = { stringValue: `v${i}-${j}` };
-      }
-      attributes.push({ key: `k${j}`, value: anyValue });
-    }
-    spans.push({
-      traceId: new Uint8Array(16),
-      spanId: new Uint8Array(8),
-      name: `span-${i}`,
-      startTimeUnixNano: "1700000000000000000",
-      endTimeUnixNano: "1700000000000001000",
-      attributes,
-    });
-  }
-  return {
-    resourceSpans: [
-      {
-        resource: {
-          attributes: [],
-          labels: {
-            env: "production",
-            region: "us-east-1",
-            cluster: "bench-cluster",
-          },
-        },
-        scopeSpans: [
-          {
-            scope: { name: "@example/tracer", version: "1.0.0" },
-            spans,
-          },
-        ],
-      },
-    ],
-  };
-}
-
 /**
  * Run the matrix and return flat per-(fixture × encoder) rows.
  *
@@ -247,16 +178,26 @@ async function runReportBench(): Promise<BenchmarkResult[]> {
     });
   }
 
-  // protobufjs is only available for the OTel traces fixture. If the
-  // CommonJS module is missing we quietly skip, which is handled
-  // gracefully in the report output (table: "-", chart: no bar).
-  const pbjs = loadPbjsExportTraceRequest();
-  const pbjsFixtureName = `ExportTraceRequest (${SPAN_COUNT} spans)`;
-  if (pbjs) {
-    const init = buildPbjsOtelInit();
-    const preBuilt = pbjs.create(init);
-    bench.add(`${pbjsFixtureName} :: protobufjs`, () => {
-      pbjs.encode(preBuilt).finish();
+  // protobufjs bars are added per-fixture wherever the pbjs static-module
+  // codegen is available. `loadPbjsFixtures` returns one entry per fixture
+  // whose init object verify()s against the pbjs schema; missing stubs
+  // produce a warning and leave that fixture's protobufjs cell empty, which
+  // the chart and table already handle.
+  const pbjsEntries = loadPbjsFixtures();
+  const preparedNames = new Set(prepared.map((p) => p.name));
+  for (const entry of pbjsEntries) {
+    if (!preparedNames.has(entry.fixture)) {
+      // Defensive: a fixture-name drift between `cases` and the pbjs
+      // registry would silently pollute the chart. Warn loudly rather than
+      // emit a row we cannot group.
+      console.warn(
+        `pbjs: fixture "${entry.fixture}" has no matching protobuf-es case; ` +
+          `check report-pbjs.ts DESCRIPTORS vs report.ts cases`,
+      );
+      continue;
+    }
+    bench.add(`${entry.fixture} :: protobufjs`, () => {
+      entry.encode();
     });
   }
 
@@ -289,6 +230,7 @@ async function runReportBench(): Promise<BenchmarkResult[]> {
 const outDir = new URL("../", import.meta.url).pathname;
 const resultsPath = `${outDir}bench-results.json`;
 const chartPath = `${outDir}chart.svg`;
+const deltaChartPath = `${outDir}chart-delta.svg`;
 const readmePath = `${outDir}README.md`;
 
 let results: BenchmarkResult[];
@@ -322,3 +264,13 @@ console.log(`Injected table into ${readmePath}`);
 const chart = generateBenchmarkChart(results);
 writeFileSync(chartPath, chart);
 console.log(`Wrote ${chartPath}`);
+
+// Delta chart: linear-scale view of toBinaryFast's % improvement over
+// toBinary per fixture, with an optional protobufjs comparison where the
+// bar is available. Log-scale charts hide the absolute magnitude of the
+// gain on shape-specific bars that already render close to each other on
+// the main chart; the delta chart is the one consumers should look at
+// when they want "how much faster, in plain terms".
+const deltaChart = generateBenchmarkDeltaChart(results);
+writeFileSync(deltaChartPath, deltaChart);
+console.log(`Wrote ${deltaChartPath}`);
