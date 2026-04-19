@@ -8,8 +8,12 @@
     "bench:toBinary": "tsx src/bench-toBinary.ts",
     "bench:create-toBinary": "tsx src/bench-create-toBinary.ts",
     "bench:fromJson-path": "tsx src/bench-fromJson-path.ts",
+    "bench:fromBinary": "tsx src/bench-fromBinary.ts",
+    "bench:comparison": "tsx src/bench-comparison-protobufjs.ts",
+    "bench:memory": "node --expose-gc --import tsx src/bench-memory.ts",
     "build": "../node_modules/typescript/bin/tsc --noEmit",
-    "generate": "buf generate",
+    "generate": "buf generate && npm run generate:protobufjs",
+    "generate:protobufjs": "pbjs -t static-module -w commonjs --force-long -o src/gen-protobufjs/nested.cjs proto/nested.proto",
     "format": "biome format --write",
     "license-header": "license-header",
     "lint": "biome lint --error-on-warnings"
@@ -20,6 +24,8 @@
     "@bufbuild/buf": "^1.66.1",
     "@bufbuild/protobuf": "2.11.0",
     "@bufbuild/protoc-gen-es": "2.11.0",
+    "protobufjs": "^7.5.5",
+    "protobufjs-cli": "^1.1.3",
     "tinybench": "^4.0.1",
     "tsx": "^4.21.0",
     "typescript": "^5.6.3"

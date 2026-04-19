@@ -1,6 +1,6 @@
 {
   "include": ["src/**/*.ts"],
-  "exclude": ["src/gen"],
+  "exclude": ["src/gen", "src/gen-protobufjs"],
   "compilerOptions": {
     "target": "es2022",
     "moduleResolution": "Node10",

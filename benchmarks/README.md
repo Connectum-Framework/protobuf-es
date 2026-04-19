@@ -21,7 +21,10 @@ npm run bench -w @bufbuild/protobuf-benchmarks
 npm run bench:create -w @bufbuild/protobuf-benchmarks
 npm run bench:toBinary -w @bufbuild/protobuf-benchmarks
 npm run bench:create-toBinary -w @bufbuild/protobuf-benchmarks
+npm run bench:fromBinary -w @bufbuild/protobuf-benchmarks
 npm run bench:fromJson-path -w @bufbuild/protobuf-benchmarks
+npm run bench:comparison -w @bufbuild/protobuf-benchmarks
+npm run bench:memory -w @bufbuild/protobuf-benchmarks
 ```
 
 ## Benchmarks
@@ -31,7 +34,10 @@ npm run bench:fromJson-path -w @bufbuild/protobuf-benchmarks
 | `bench-create.ts` | Cost of `create(Schema, init)` in isolation — small flat message vs. full OTLP-like tree constructed via many nested `create()` calls |
 | `bench-toBinary.ts` | Cost of `toBinary(Schema, message)` on pre-built messages — serialization-only, no allocation of the message graph |
 | `bench-create-toBinary.ts` | Combined workload: build the message graph fresh each iteration, then serialize. This is the end-to-end shape of one OTLP export call |
+| `bench-fromBinary.ts` | Cost of `fromBinary(Schema, bytes)` on pre-encoded payloads — reflective decoder walk in isolation |
 | `bench-fromJson-path.ts` | `fromJsonString + toBinary` and `fromJson + toBinary` paths on the same fixture. The first one is the #6221 regression shape; the second is the partial-fix midpoint |
+| `bench-comparison-protobufjs.ts` | Cross-library comparison: protobuf-es vs `protobufjs` (pbjs static codegen) on the same `.proto` fixture. Covers full roundtrip, encode-only, decode-only |
+| `bench-memory.ts` | Heap allocations per operation (`heapUsed` delta after forced GC) for both libraries. Requires `--expose-gc` |
 
 ## Methodology
 
@@ -81,22 +87,59 @@ First local run on Node v25.8.1, linux/x64 (non-isolated host, margins of error 
 | `fromJsonString + toBinary (100 spans) — OTel #6221 shape` | 235 | 15% |
 | `fromJson + toBinary (100 spans) — plainObject path` | 275 | 12% |
 
+### fromBinary() parsing cost
+
+| Case | ops/sec (median) | ± |
+|------|------------------|---|
+| `fromBinary() SimpleMessage (19 B)` | 1,663,894 | 0.02% |
+| `fromBinary() ExportTraceRequest (100 spans, 35,283 B)` | 1,501 | 0.40% |
+
+Parsing (decode) is materially faster than encoding on the same nested workload: ~1,500 ops/s decode vs ~600 ops/s encode. The encode walk pays varint length prefixing (writing length-delimited sub-messages requires allocating a fork buffer, encoding into it, then measuring its length to write the length prefix) that does not have a symmetric cost in the decode path.
+
+### protobuf-es vs protobufjs (same `.proto`, same host)
+
+Bench run on the OTLP-like 100-span fixture; protobufjs generated via `pbjs -t static-module -w commonjs --force-long`. Numbers below are medians from standalone runs of `bench:comparison` (host not isolated; margins of error on protobuf-es cases are wider than on protobufjs because each protobuf-es iteration takes longer, giving fewer samples in the 2000 ms measurement window).
+
+| Workload | protobuf-es ops/s | protobufjs ops/s | Ratio |
+|----------|---------------------:|--------------------:|--------:|
+| create + encode (100 spans) | 666 | 3,788 | **5.7x slower** |
+| encode pre-built (100 spans) | 622 | 4,041 | **6.5x slower** |
+| decode 100 spans | 1,501 | 6,868 | **4.6x slower** |
+
+Run-to-run variance on an unpinned host moves these ratios by roughly ±20%. Observed ranges across multiple runs: 5.3x–6.3x on create+encode, 4.4x–6.5x on decode. For tighter numbers pin to a single core.
+
+### Memory (heap bytes per operation)
+
+Coarse measurement via `heapUsed` delta across 1,000 iterations after forced GC. Requires `--expose-gc`.
+
+| Case | Bytes/op (avg) | Ratio vs protobufjs |
+|------|----------------:|---------------------:|
+| protobuf-es: create + toBinary (100 spans) | 23,524 | 3.2x more |
+| protobufjs: create + encode (100 spans) | 7,449 | baseline |
+| protobuf-es: fromBinary (100 spans) | 31,569 | 0.94x (less) |
+| protobufjs: decode (100 spans) | 33,594 | baseline |
+
+Observations:
+- Encode side: protobuf-es allocates ~3x more heap per operation than protobufjs. Consistent with the reflective encoder path constructing intermediate length-prefix buffers via `BinaryWriter.fork()` + array joins per sub-message.
+- Decode side: allocations are within jitter — both libraries materialize the message tree, and the decoded object graph dominates the delta.
+
 ### Reading these numbers
 
 - On the 100-span nested workload, `toBinary` dominates: pre-built `toBinary` (267 ops/s) and combined `create() + toBinary()` (285 ops/s) are within jitter of each other, i.e. constructing the message graph is cheap compared to the reflective binary encode walk.
 - The `fromJsonString + toBinary` path is roughly 20% slower than direct `create + toBinary` on this fixture (235 vs 285 ops/s median). The OTel incident report observed ~13x — most of that gap is the extra transformer-level traversals building the JSON-shaped object tree upstream of `fromJsonString`, which this benchmark does not exercise. Here we isolate just the `fromJsonString + toBinary` step, so the observed ratio is the lower bound on the regression's protobuf-es-side contribution.
 - The `SimpleMessage` numbers illustrate per-call overhead on a trivial shape. Relevant when many small messages are serialized in tight loops (e.g. gRPC unary call payloads).
+- The comparison vs protobufjs is consistent with the OTel report's directional claim (protobuf-es is slower on this shape), but the observed ratio here is ~5–7x, not the 13x–30x sometimes cited from external measurements. The difference is attributable to (a) pbjs static-module codegen producing ahead-of-time encoders, which isolates only the encoder/decoder walk; real-world numbers include app-level traversal, JSON conversion, BigInt handling, and allocator pressure which this suite deliberately does not measure; (b) different Node versions and host conditions. This suite reports what protobuf-es actually spends on encode/decode under controlled conditions — use those numbers for tracking, not for headline claims.
 
 ## Methodology notes
 
 - The `bench-fromJson-path` cases deliberately reproduce a known-pathological pattern. Do not read the numbers there as "protobuf-es is slow" — they show the cost of an unnecessary extra traversal. See `bench-create-toBinary` for the idiomatic path.
 - `create()` is called per sub-message in the nested benchmark (every `KeyValue`, `Span`, `ScopeSpans`, etc.) because protobuf-es's reflective `toBinary` relies on the `$typeName`-tagged prototype established by `create` — this matches the real-world cost of constructing an OTLP-like tree.
-- The benchmarks measure serialization only; they do not exercise `fromBinary` (parsing). A parsing suite is listed under Future work.
+- The comparison benchmark uses pbjs static-module codegen (ahead-of-time encoder/decoder), which is the protobufjs mode most commonly adopted in production. pbjs reflection-mode numbers would be slower and not representative of what protobufjs users actually deploy.
+- The memory benchmark uses a `heapUsed` delta across 1,000 iterations with `gc()` sandwiching the measurement. This is coarse — it does not separate young-gen allocations cleared between minor GCs from steady-state retained memory — but it is internally consistent across the libraries compared here. For finer attribution use `node --heap-prof` and inspect the resulting `.heapprofile` in Chrome DevTools.
 
 ## Future work
 
 - CI integration — run on PR and publish trends; flag regressions above a configurable threshold.
-- Comparison runs against `protobufjs` and `ts-proto` on the same fixtures (separate package, opt-in dependencies).
-- Memory / allocation benchmarks via `node --heap-prof`.
+- `ts-proto` comparison on the same fixtures (separate package, opt-in dependency). Would round out the "ahead-of-time codegen" comparison group alongside protobufjs.
 - Streaming write benchmarks (`sizeDelimitedEncode`) for gRPC-style workloads.
-- `fromBinary` parsing benchmarks symmetric to these.
+- Allocation tracking via `node --heap-prof` for per-call-site attribution (replacing the coarse `heapUsed` delta in `bench-memory`).

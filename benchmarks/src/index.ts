@@ -19,6 +19,8 @@ import { runCreateBench } from "./bench-create.js";
 import { runToBinaryBench } from "./bench-toBinary.js";
 import { runCreateToBinaryBench } from "./bench-create-toBinary.js";
 import { runFromJsonPathBench } from "./bench-fromJson-path.js";
+import { runFromBinaryBench } from "./bench-fromBinary.js";
+import { runComparisonBench } from "./bench-comparison-protobufjs.js";
 
 async function main() {
   console.log("protobuf-es benchmark suite");
@@ -38,9 +40,17 @@ async function main() {
   console.log("\n=== create() + toBinary() combined workload ===");
   console.table(combined.table());
 
+  const fromBinary = await runFromBinaryBench();
+  console.log("\n=== fromBinary() parsing cost ===");
+  console.table(fromBinary.table());
+
   const fromJson = await runFromJsonPathBench();
   console.log("\n=== fromJson / fromJsonString + toBinary paths ===");
   console.table(fromJson.table());
+
+  const comparison = await runComparisonBench();
+  console.log("\n=== protobuf-es vs protobufjs ===");
+  console.table(comparison.table());
 }
 
 main().catch((err) => {
