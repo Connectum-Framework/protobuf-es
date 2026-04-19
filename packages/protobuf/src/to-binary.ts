@@ -85,6 +85,15 @@ function writeFields(
 }
 
 /**
+ * Compute a protobuf tag integer from a field number and wire type.
+ * Equivalent to `((fieldNo << 3) | wireType) >>> 0` but expressed as a
+ * named helper for legibility at call sites.
+ */
+function tagOf(fieldNo: number, wireType: WireType): number {
+  return ((fieldNo << 3) | wireType) >>> 0;
+}
+
+/**
  * @private
  */
 export function writeField(
@@ -127,8 +136,14 @@ function writeScalar(
   fieldNo: number,
   value: unknown,
 ) {
+  // Tag integer is produced from a validated descriptor: fieldNo is a
+  // non-negative 32-bit integer and wireType is in [0, 5]. The resulting
+  // `((fieldNo << 3) | wireType) >>> 0` is therefore always a valid uint32,
+  // so we can skip the per-call `assertUInt32` that `tag()` / `uint32()`
+  // perform on the hot path.
+  writer.tagUnchecked(tagOf(fieldNo, writeTypeOfScalar(scalarType)));
   writeScalarValue(
-    writer.tag(fieldNo, writeTypeOfScalar(scalarType)),
+    writer,
     msgName,
     fieldName,
     scalarType,
@@ -144,17 +159,14 @@ function writeMessageField(
   message: ReflectMessage,
 ) {
   if (field.delimitedEncoding) {
-    writeFields(
-      writer.tag(field.number, WireType.StartGroup),
-      opts,
-      message,
-    ).tag(field.number, WireType.EndGroup);
+    writer.tagUnchecked(tagOf(field.number, WireType.StartGroup));
+    writeFields(writer, opts, message);
+    writer.tagUnchecked(tagOf(field.number, WireType.EndGroup));
   } else {
-    writeFields(
-      writer.tag(field.number, WireType.LengthDelimited).fork(),
-      opts,
-      message,
-    ).join();
+    writer.tagUnchecked(tagOf(field.number, WireType.LengthDelimited));
+    writer.fork();
+    writeFields(writer, opts, message);
+    writer.join();
   }
 }
 
@@ -175,7 +187,8 @@ function writeListField(
     if (!list.size) {
       return;
     }
-    writer.tag(field.number, WireType.LengthDelimited).fork();
+    writer.tagUnchecked(tagOf(field.number, WireType.LengthDelimited));
+    writer.fork();
     for (const item of list) {
       writeScalarValue(
         writer,
@@ -207,7 +220,8 @@ function writeMapEntry(
   key: unknown,
   value: unknown,
 ) {
-  writer.tag(field.number, WireType.LengthDelimited).fork();
+  writer.tagUnchecked(tagOf(field.number, WireType.LengthDelimited));
+  writer.fork();
 
   // write key, expecting key field number = 1
   writeScalar(writer, field.parent.typeName, field.name, field.mapKey, 1, key);
@@ -226,11 +240,10 @@ function writeMapEntry(
       );
       break;
     case "message":
-      writeFields(
-        writer.tag(2, WireType.LengthDelimited).fork(),
-        opts,
-        value as ReflectMessage,
-      ).join();
+      writer.tagUnchecked(tagOf(2, WireType.LengthDelimited));
+      writer.fork();
+      writeFields(writer, opts, value as ReflectMessage);
+      writer.join();
       break;
   }
   writer.join();

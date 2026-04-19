@@ -191,6 +191,24 @@ export class BinaryWriter {
   }
 
   /**
+   * Write a tag value as varint, skipping the `assertUInt32` validation that
+   * `tag()` / `uint32()` perform. Safe only for values produced by
+   * `((fieldNo << 3) | wireType) >>> 0` from a validated descriptor: the
+   * result is always a non-negative 32-bit integer by construction.
+   *
+   * @private
+   */
+  tagUnchecked(tag: number): this {
+    // write value as varint 32, inlined for speed, no assertion
+    while (tag > 0x7f) {
+      this.buf.push((tag & 0x7f) | 0x80);
+      tag = tag >>> 7;
+    }
+    this.buf.push(tag);
+    return this;
+  }
+
+  /**
    * Write a chunk of raw bytes.
    */
   raw(chunk: Uint8Array): this {
