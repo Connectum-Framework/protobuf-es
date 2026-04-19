@@ -27,7 +27,7 @@
 // future protobuf-es changes can be tracked against a stable baseline.
 
 import { Bench } from "tinybench";
-import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
+import { create, toBinary, toBinaryFast, fromBinary } from "@bufbuild/protobuf";
 import { ExportTraceRequestSchema } from "./gen/nested_pb.js";
 import { SPAN_COUNT } from "./fixtures.js";
 
@@ -120,6 +120,14 @@ export async function runComparisonBench() {
   );
 
   bench.add(
+    `protobuf-es: create+toBinaryFast (${SPAN_COUNT} spans, OTel-like)`,
+    () => {
+      const msg = create(ExportTraceRequestSchema, initEs);
+      toBinaryFast(ExportTraceRequestSchema, msg);
+    },
+  );
+
+  bench.add(
     `protobufjs: create+encode (${SPAN_COUNT} spans, OTel-like)`,
     () => {
       const msg = ExportTraceRequestJs.create(initPbjs);
@@ -133,6 +141,10 @@ export async function runComparisonBench() {
 
   bench.add(`protobuf-es: toBinary pre-built (${SPAN_COUNT} spans)`, () => {
     toBinary(ExportTraceRequestSchema, esPrebuilt);
+  });
+
+  bench.add(`protobuf-es: toBinaryFast pre-built (${SPAN_COUNT} spans)`, () => {
+    toBinaryFast(ExportTraceRequestSchema, esPrebuilt);
   });
 
   bench.add(`protobufjs: encode pre-built (${SPAN_COUNT} spans)`, () => {

@@ -18,7 +18,7 @@
 // of an OTLP trace export call made once per batch.
 
 import { Bench } from "tinybench";
-import { create, toBinary } from "@bufbuild/protobuf";
+import { create, toBinary, toBinaryFast } from "@bufbuild/protobuf";
 import { SimpleMessageSchema } from "./gen/small_pb.js";
 import {
   ExportTraceRequestSchema,
@@ -41,6 +41,15 @@ export async function runCreateToBinaryBench() {
       enabled: true,
     });
     toBinary(SimpleMessageSchema, m);
+  });
+
+  bench.add("create() + toBinaryFast() SimpleMessage", () => {
+    const m = create(SimpleMessageSchema, {
+      name: "bench-message",
+      value: 42,
+      enabled: true,
+    });
+    toBinaryFast(SimpleMessageSchema, m);
   });
 
   bench.add(
@@ -82,6 +91,48 @@ export async function runCreateToBinaryBench() {
         ],
       });
       toBinary(ExportTraceRequestSchema, req);
+    },
+  );
+
+  bench.add(
+    `create() + toBinaryFast() ExportTraceRequest (${SPAN_COUNT} spans, OTel-like)`,
+    () => {
+      const spans = [] as ReturnType<typeof create<typeof SpanSchema>>[];
+      for (let i = 0; i < SPAN_COUNT; i++) {
+        const attrs = [] as ReturnType<typeof create<typeof KeyValueSchema>>[];
+        for (let j = 0; j < 10; j++) {
+          attrs.push(
+            create(KeyValueSchema, {
+              key: `k${j}`,
+              stringValue: `v${i}-${j}`,
+            }),
+          );
+        }
+        spans.push(
+          create(SpanSchema, {
+            traceId: new Uint8Array(16),
+            spanId: new Uint8Array(8),
+            name: `span-${i}`,
+            startTimeUnixNano: 1_700_000_000_000_000_000n,
+            endTimeUnixNano: 1_700_000_000_000_001_000n,
+            attributes: attrs,
+          }),
+        );
+      }
+      const scope = create(InstrumentationScopeSchema, {
+        name: "@example/tracer",
+        version: "1.0.0",
+      });
+      const resource = create(ResourceSchema, { attributes: [] });
+      const req = create(ExportTraceRequestSchema, {
+        resourceSpans: [
+          create(ResourceSpansSchema, {
+            resource,
+            scopeSpans: [create(ScopeSpansSchema, { scope, spans })],
+          }),
+        ],
+      });
+      toBinaryFast(ExportTraceRequestSchema, req);
     },
   );
 
