@@ -21,6 +21,7 @@ import { Bench } from "tinybench";
 import { create, toBinary, toBinaryFast } from "@bufbuild/protobuf";
 import { SimpleMessageSchema } from "./gen/small_pb.js";
 import {
+  AnyValueSchema,
   ExportTraceRequestSchema,
   ResourceSpansSchema,
   ScopeSpansSchema,
@@ -62,7 +63,9 @@ export async function runCreateToBinaryBench() {
           attrs.push(
             create(KeyValueSchema, {
               key: `k${j}`,
-              stringValue: `v${i}-${j}`,
+              value: create(AnyValueSchema, {
+                value: { case: "stringValue", value: `v${i}-${j}` },
+              }),
             }),
           );
         }
@@ -104,7 +107,9 @@ export async function runCreateToBinaryBench() {
           attrs.push(
             create(KeyValueSchema, {
               key: `k${j}`,
-              stringValue: `v${i}-${j}`,
+              value: create(AnyValueSchema, {
+                value: { case: "stringValue", value: `v${i}-${j}` },
+              }),
             }),
           );
         }

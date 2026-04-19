@@ -17,18 +17,34 @@ package bench.v1;
 
 // nested.proto intentionally mirrors the shape of the OTLP trace export
 // request (opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest),
-// simplified to the fields most traffic goes through. This is a realistic
-// hotpath workload — see open-telemetry/opentelemetry-js#6221 for the
-// production incident that motivates measuring this shape.
+// now extended to exercise the full AnyValue oneof and a map<string,string>
+// so that the fast-path encoder benchmark matches a realistic OTel payload.
+// See open-telemetry/opentelemetry-js#6221 for the production incident that
+// motivates measuring this shape.
+
+// AnyValue is the oneof-typed value carried by every KeyValue attribute in
+// OTLP. We include the common leaf types; array/kvlist are intentionally
+// omitted — they nest through KeyValue again and would dominate the
+// benchmark on a distribution we don't observe in practice.
+message AnyValue {
+  oneof value {
+    string string_value = 1;
+    bool bool_value = 2;
+    int64 int_value = 3;
+    double double_value = 4;
+    bytes bytes_value = 7;
+  }
+}
 
 message KeyValue {
   string key = 1;
-  string string_value = 2;
+  AnyValue value = 2;
 }
 
 message InstrumentationScope {
   string name = 1;
   string version = 2;
+  repeated KeyValue attributes = 3;
 }
 
 message Span {
@@ -47,6 +63,11 @@ message ScopeSpans {
 
 message Resource {
   repeated KeyValue attributes = 1;
+  // `labels` exercises map<string, string> encoding on the fast path.
+  // Real OTLP payloads don't carry a labels map, but maps show up in
+  // many other ConnectRPC schemas and we want the benchmark to reflect
+  // that fast-path cost too.
+  map<string, string> labels = 2;
 }
 
 message ResourceSpans {

@@ -20,6 +20,7 @@ import { Bench } from "tinybench";
 import { create } from "@bufbuild/protobuf";
 import { SimpleMessageSchema } from "./gen/small_pb.js";
 import {
+  AnyValueSchema,
   ExportTraceRequestSchema,
   ResourceSpansSchema,
   ScopeSpansSchema,
@@ -56,7 +57,9 @@ export async function runCreateBench() {
           attrs.push(
             create(KeyValueSchema, {
               key: `k${j}`,
-              stringValue: `v${i}-${j}`,
+              value: create(AnyValueSchema, {
+                value: { case: "stringValue", value: `v${i}-${j}` },
+              }),
             }),
           );
         }

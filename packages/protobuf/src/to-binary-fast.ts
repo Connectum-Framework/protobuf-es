@@ -37,11 +37,12 @@
 // single tight loop with no intermediate `Uint8Array`/`number[]` objects
 // per field.
 //
-// Scope (MVP):
+// Scope:
 //   - supported:   scalar fields (all 15 types), enums, nested messages,
-//                  repeated scalar (packed + unpacked), repeated message
-//   - unsupported: map fields, oneof groups, extensions, delimited/group
-//                  encoding, unknown fields
+//                  repeated scalar (packed + unpacked), repeated message,
+//                  map<K,V> for all legal K and any scalar/enum/message V,
+//                  oneof groups
+//   - unsupported: extensions, delimited/group encoding, unknown fields
 //
 // For unsupported schemas `toBinaryFast` falls back to the existing
 // reflective `toBinary`. The decision is computed once per `DescMessage`
@@ -55,7 +56,12 @@
 // `toBinary`'s non-unknown path, but future tweaks may diverge).
 
 import type { MessageShape } from "./types.js";
-import { ScalarType, type DescField, type DescMessage } from "./descriptors.js";
+import {
+  ScalarType,
+  type DescField,
+  type DescMessage,
+  type DescOneof,
+} from "./descriptors.js";
 import { protoInt64 } from "./proto-int64.js";
 import { toBinary } from "./to-binary.js";
 import { getTextEncoding } from "./wire/text-encoding.js";
@@ -87,21 +93,16 @@ function isSupported(
 
   let ok = true;
   for (const field of desc.fields) {
-    // Delimited (group) encoding is not handled in the MVP.
+    // Delimited (group) encoding is not handled — the legacy wire format
+    // requires paired start/end tags which don't fit the single-pass
+    // write model. Map fields and message-typed map values cannot use
+    // delimited encoding (enforced by the descriptor), so we only need
+    // to check singular messages and repeated messages.
     if (
       (field.fieldKind === "message" ||
         (field.fieldKind === "list" && field.listKind === "message")) &&
       (field as { delimitedEncoding?: boolean }).delimitedEncoding === true
     ) {
-      ok = false;
-      break;
-    }
-    // Maps and oneofs are not handled in the MVP.
-    if (field.fieldKind === "map") {
-      ok = false;
-      break;
-    }
-    if (field.oneof !== undefined) {
       ok = false;
       break;
     }
@@ -115,6 +116,17 @@ function isSupported(
     if (
       field.fieldKind === "list" &&
       field.listKind === "message" &&
+      field.message
+    ) {
+      if (!isSupported(field.message, visiting)) {
+        ok = false;
+        break;
+      }
+    }
+    // Recurse into map value messages.
+    if (
+      field.fieldKind === "map" &&
+      field.mapKind === "message" &&
       field.message
     ) {
       if (!isSupported(field.message, visiting)) {
@@ -287,28 +299,22 @@ function scalarWireType(type: ScalarType): number {
   }
 }
 
-/** Should this field be emitted for the given message? */
-function isFieldSet(
-  field: DescField,
-  value: unknown,
-  message: Record<string, unknown>,
-): boolean {
-  // Explicit presence (proto2 / proto3 optional / synthetic oneof): the
-  // generated setters only assign when the property was set. Missing ⇒
-  // undefined in the message object.
+/**
+ * Should this non-oneof field be emitted for the given message?
+ * Oneof members are dispatched separately and never flow through this
+ * predicate.
+ */
+function isFieldSet(field: DescField, value: unknown): boolean {
+  // Explicit presence (proto2 / proto3 optional): the generated setters
+  // only assign when the property was set. Missing ⇒ undefined.
   if (value === undefined || value === null) return false;
 
   // Implicit presence (proto3 singular scalar/enum): zero value means
   // "not set" and must not be emitted. Lists/maps handled separately
-  // (empty list means "not set" too).
+  // (empty list/map means "not set" too).
   switch (field.fieldKind) {
     case "scalar": {
       const t = field.scalar;
-      // Implicit presence is the default in proto3; we omit zero values.
-      // For proto2 explicit-presence scalars the codegen emits undefined
-      // when unset, so this branch wouldn't fire. Checking presence on
-      // the descriptor would be more precise but also more expensive on
-      // the hot path — mirror the existing reflect semantics here.
       if (field.presence !== 2 /* IMPLICIT */) {
         // Explicit / legacy required: any defined value counts as set.
         return true;
@@ -324,8 +330,8 @@ function isFieldSet(
         t === ScalarType.SFIXED64
       ) {
         // bigint zero, numeric zero, "0" string all represent unset.
-        // biome-ignore lint/suspicious/noDoubleEquals: 0n == 0 == "0" intentionally.
-        return value != 0;
+        // Compare via coercion so 0n / 0 / "0" all return false.
+        return value !== 0 && value !== 0n && value !== "0";
       }
       return (value as number) !== 0;
     }
@@ -337,19 +343,199 @@ function isFieldSet(
     case "list":
       return (value as unknown[]).length > 0;
     case "map":
-      // Map fields are a blocker in isSupported; we should never get
-      // here, but be defensive.
+      // Map fields carry their own "any entry" gate here — empty object
+      // ⇒ not set ⇒ omit. Same semantics as reflect.unsafeIsSet.
       return Object.keys(value as object).length > 0;
   }
-  // Unreachable — above switch is exhaustive for DescField.fieldKind.
-  // Return true so that an unexpected shape surfaces as an error during
-  // the size/write mismatch check rather than silent data loss.
+  // Exhaustive switch; unreachable. Return true so unexpected shapes
+  // surface as a size/write mismatch error rather than silent data loss.
   return true;
-  // Parameter `message` kept for future use (e.g. oneof case disambiguation);
-  // currently unused but left in the signature to avoid churn when we
-  // expand the supported surface.
-  // biome-ignore lint/correctness/noUnreachable: documentation.
-  void message;
+}
+
+// -----------------------------------------------------------------------------
+// Map key helpers
+// -----------------------------------------------------------------------------
+//
+// protobuf-es stores map fields as plain JS objects keyed by the stringified
+// map key (see reflectMap.mapKeyToLocal). On the fast path we iterate
+// `Object.keys`, so every key we see is a string. For integer and boolean
+// map keys we parse back to the typed value before computing the scalar
+// size or writing the scalar bytes — matching what the reflective encoder
+// does via ReflectMap's iterator.
+
+type MapKeyScalar = Exclude<
+  ScalarType,
+  ScalarType.FLOAT | ScalarType.DOUBLE | ScalarType.BYTES
+>;
+
+function coerceMapKey(stringKey: string, keyType: MapKeyScalar): unknown {
+  switch (keyType) {
+    case ScalarType.STRING:
+      return stringKey;
+    case ScalarType.BOOL:
+      // Object keys for boolean maps are always "true" / "false" strings.
+      return stringKey === "true";
+    case ScalarType.INT64:
+    case ScalarType.SINT64:
+    case ScalarType.SFIXED64:
+      return protoInt64.parse(stringKey);
+    case ScalarType.UINT64:
+    case ScalarType.FIXED64:
+      return protoInt64.uParse(stringKey);
+    default:
+      // INT32, SINT32, FIXED32, SFIXED32, UINT32 — parse back to number.
+      return Number.parseInt(stringKey, 10);
+  }
+}
+
+/**
+ * Body-size of a single map entry message `{ key, value }`, excluding
+ * the outer field tag and length prefix. Returns both the body size and,
+ * for message-typed values, the submessage body size (so the writer
+ * doesn't recompute it).
+ */
+function estimateMapEntryBody(
+  field: DescField & { fieldKind: "map" },
+  keyTyped: unknown,
+  value: unknown,
+  sizes: SizeMap,
+): { body: number; valueSubSize: number } {
+  // Entry key is always field number 1.
+  const keySize =
+    tagSize(1, scalarWireType(field.mapKey)) + scalarSize(field.mapKey, keyTyped);
+  let valSize: number;
+  let valueSubSize = 0;
+  switch (field.mapKind) {
+    case "scalar":
+      valSize =
+        tagSize(2, scalarWireType(field.scalar)) +
+        scalarSize(field.scalar, value);
+      break;
+    case "enum":
+      valSize = tagSize(2, WIRE_VARINT) + int32Size(value as number);
+      break;
+    case "message": {
+      const sub = value as Record<string, unknown>;
+      valueSubSize = estimateMessageSize(field.message, sub, sizes);
+      sizes.set(sub, valueSubSize);
+      valSize =
+        tagSize(2, WIRE_LENGTH_DELIMITED) +
+        varintSize32(valueSubSize) +
+        valueSubSize;
+      break;
+    }
+  }
+  return { body: keySize + valSize, valueSubSize };
+}
+
+/**
+ * Size contribution of a map field: for every entry, an outer tag + length
+ * prefix + entry body. Map entries are always length-delimited — map fields
+ * cannot use delimited (group) encoding.
+ */
+function estimateMapFieldSize(
+  field: DescField & { fieldKind: "map" },
+  obj: Record<string, unknown>,
+  sizes: SizeMap,
+): number {
+  const tagBytes = tagSize(field.number, WIRE_LENGTH_DELIMITED);
+  let size = 0;
+  for (const strKey of Object.keys(obj)) {
+    const keyTyped = coerceMapKey(strKey, field.mapKey);
+    const { body } = estimateMapEntryBody(field, keyTyped, obj[strKey], sizes);
+    size += tagBytes + varintSize32(body) + body;
+  }
+  return size;
+}
+
+/**
+ * Size contribution of a single non-oneof non-map "regular" field. Broken
+ * out so that the oneof dispatch can reuse the same switch.
+ */
+function estimateRegularFieldSize(
+  field: DescField,
+  value: unknown,
+  sizes: SizeMap,
+): number {
+  switch (field.fieldKind) {
+    case "scalar":
+      return (
+        tagSize(field.number, scalarWireType(field.scalar)) +
+        scalarSize(field.scalar, value)
+      );
+    case "enum":
+      return tagSize(field.number, WIRE_VARINT) + int32Size(value as number);
+    case "message": {
+      const sub = value as Record<string, unknown>;
+      const subSize = estimateMessageSize(field.message, sub, sizes);
+      sizes.set(sub, subSize);
+      return (
+        tagSize(field.number, WIRE_LENGTH_DELIMITED) +
+        varintSize32(subSize) +
+        subSize
+      );
+    }
+    case "list": {
+      const list = value as unknown[];
+      let size = 0;
+      if (field.listKind === "message") {
+        const tagBytes = tagSize(field.number, WIRE_LENGTH_DELIMITED);
+        for (let k = 0; k < list.length; k++) {
+          const sub = list[k] as Record<string, unknown>;
+          const subSize = estimateMessageSize(field.message, sub, sizes);
+          sizes.set(sub, subSize);
+          size += tagBytes + varintSize32(subSize) + subSize;
+        }
+        return size;
+      }
+      if (field.listKind === "enum") {
+        if (field.packed) {
+          let body = 0;
+          for (let k = 0; k < list.length; k++) {
+            body += int32Size(list[k] as number);
+          }
+          return (
+            tagSize(field.number, WIRE_LENGTH_DELIMITED) +
+            varintSize32(body) +
+            body
+          );
+        }
+        const tagBytes = tagSize(field.number, WIRE_VARINT);
+        for (let k = 0; k < list.length; k++) {
+          size += tagBytes + int32Size(list[k] as number);
+        }
+        return size;
+      }
+      // listKind === "scalar"
+      const t = field.scalar;
+      const wt = scalarWireType(t);
+      if (field.packed && wt !== WIRE_LENGTH_DELIMITED) {
+        let body = 0;
+        for (let k = 0; k < list.length; k++) {
+          body += scalarSize(t, list[k]);
+        }
+        return (
+          tagSize(field.number, WIRE_LENGTH_DELIMITED) +
+          varintSize32(body) +
+          body
+        );
+      }
+      const tagBytes = tagSize(field.number, wt);
+      for (let k = 0; k < list.length; k++) {
+        size += tagBytes + scalarSize(t, list[k]);
+      }
+      return size;
+    }
+    case "map":
+      // Map fields flow through estimateMapFieldSize; this branch is
+      // defensive and never taken on the estimation hot path.
+      return estimateMapFieldSize(
+        field as DescField & { fieldKind: "map" },
+        value as Record<string, unknown>,
+        sizes,
+      );
+  }
+  return 0;
 }
 
 function estimateMessageSize(
@@ -361,82 +547,53 @@ function estimateMessageSize(
   const fields = desc.fields;
   for (let i = 0; i < fields.length; i++) {
     const field = fields[i];
-    const value = message[field.localName];
-    if (!isFieldSet(field, value, message)) continue;
+    // Oneof members are dispatched via the `desc.oneofs` loop below.
+    if (field.oneof !== undefined) continue;
 
-    switch (field.fieldKind) {
-      case "scalar": {
-        size += tagSize(field.number, scalarWireType(field.scalar));
-        size += scalarSize(field.scalar, value);
-        break;
-      }
-      case "enum": {
-        size += tagSize(field.number, WIRE_VARINT);
-        size += int32Size(value as number);
-        break;
-      }
-      case "message": {
-        const sub = value as Record<string, unknown>;
-        const subSize = estimateMessageSize(field.message, sub, sizes);
-        sizes.set(sub, subSize);
-        size +=
-          tagSize(field.number, WIRE_LENGTH_DELIMITED) +
-          varintSize32(subSize) +
-          subSize;
-        break;
-      }
-      case "list": {
-        const list = value as unknown[];
-        if (field.listKind === "message") {
-          const tagBytes = tagSize(field.number, WIRE_LENGTH_DELIMITED);
-          for (let k = 0; k < list.length; k++) {
-            const sub = list[k] as Record<string, unknown>;
-            const subSize = estimateMessageSize(field.message, sub, sizes);
-            sizes.set(sub, subSize);
-            size += tagBytes + varintSize32(subSize) + subSize;
-          }
-        } else if (field.listKind === "enum") {
-          if (field.packed) {
-            let body = 0;
-            for (let k = 0; k < list.length; k++) {
-              body += int32Size(list[k] as number);
-            }
-            size +=
-              tagSize(field.number, WIRE_LENGTH_DELIMITED) +
-              varintSize32(body) +
-              body;
-          } else {
-            const tagBytes = tagSize(field.number, WIRE_VARINT);
-            for (let k = 0; k < list.length; k++) {
-              size += tagBytes + int32Size(list[k] as number);
-            }
-          }
-        } else {
-          // listKind === "scalar"
-          const t = field.scalar;
-          const wt = scalarWireType(t);
-          if (field.packed && wt !== WIRE_LENGTH_DELIMITED) {
-            let body = 0;
-            for (let k = 0; k < list.length; k++) {
-              body += scalarSize(t, list[k]);
-            }
-            size +=
-              tagSize(field.number, WIRE_LENGTH_DELIMITED) +
-              varintSize32(body) +
-              body;
-          } else {
-            const tagBytes = tagSize(field.number, wt);
-            for (let k = 0; k < list.length; k++) {
-              size += tagBytes + scalarSize(t, list[k]);
-            }
-          }
-        }
-        break;
-      }
-      // map / oneof: filtered out by isSupported; unreachable.
+    if (field.fieldKind === "map") {
+      const obj = message[field.localName] as
+        | Record<string, unknown>
+        | undefined;
+      if (!obj || Object.keys(obj).length === 0) continue;
+      size += estimateMapFieldSize(
+        field as DescField & { fieldKind: "map" },
+        obj,
+        sizes,
+      );
+      continue;
     }
+
+    const value = message[field.localName];
+    if (!isFieldSet(field, value)) continue;
+    size += estimateRegularFieldSize(field, value, sizes);
+  }
+  // Oneof dispatch: at most one field per oneof contributes, identified by
+  // the `case` discriminator on the oneof ADT object. Zero values are
+  // emitted when a oneof case is explicitly set — that's the whole point
+  // of the oneof: presence is carried by the discriminator, not by value.
+  const oneofs = desc.oneofs;
+  for (let i = 0; i < oneofs.length; i++) {
+    const oneof = oneofs[i];
+    const adt = message[oneof.localName] as
+      | { case: string | undefined; value?: unknown }
+      | undefined;
+    if (!adt || adt.case === undefined) continue;
+    const selected = findOneofField(oneof, adt.case);
+    if (!selected) continue;
+    size += estimateRegularFieldSize(selected, adt.value, sizes);
   }
   return size;
+}
+
+function findOneofField(
+  oneof: DescOneof,
+  caseName: string,
+): DescField | undefined {
+  const fs = oneof.fields;
+  for (let i = 0; i < fs.length; i++) {
+    if (fs[i].localName === caseName) return fs[i];
+  }
+  return undefined;
 }
 
 // -----------------------------------------------------------------------------
@@ -587,6 +744,150 @@ function writeScalar(c: Cursor, type: ScalarType, value: unknown): void {
   }
 }
 
+function writeMapEntry(
+  c: Cursor,
+  field: DescField & { fieldKind: "map" },
+  keyTyped: unknown,
+  value: unknown,
+  sizes: SizeMap,
+): void {
+  // Entry key: field number 1.
+  writeTag(c, 1, scalarWireType(field.mapKey));
+  writeScalar(c, field.mapKey, keyTyped);
+  // Entry value: field number 2.
+  switch (field.mapKind) {
+    case "scalar":
+      writeTag(c, 2, scalarWireType(field.scalar));
+      writeScalar(c, field.scalar, value);
+      return;
+    case "enum":
+      writeTag(c, 2, WIRE_VARINT);
+      writeInt32(c, value as number);
+      return;
+    case "message": {
+      const sub = value as Record<string, unknown>;
+      const subSize = sizes.get(sub) ?? 0;
+      writeTag(c, 2, WIRE_LENGTH_DELIMITED);
+      writeVarint32(c, subSize);
+      writeMessageInto(c, field.message, sub, sizes);
+      return;
+    }
+  }
+}
+
+function writeMapField(
+  c: Cursor,
+  field: DescField & { fieldKind: "map" },
+  obj: Record<string, unknown>,
+  sizes: SizeMap,
+): void {
+  for (const strKey of Object.keys(obj)) {
+    const keyTyped = coerceMapKey(strKey, field.mapKey);
+    const value = obj[strKey];
+    // Body size is recomputed here rather than cached because caching it
+    // per-entry would require either (1) a second identity-keyed cache
+    // separate from `sizes` or (2) wrapping each entry in a synthetic
+    // object. Recompute is cheap — scalar types only, except for the
+    // `value` submessage which reads from `sizes` anyway.
+    const { body } = estimateMapEntryBody(field, keyTyped, value, sizes);
+    writeTag(c, field.number, WIRE_LENGTH_DELIMITED);
+    writeVarint32(c, body);
+    writeMapEntry(c, field, keyTyped, value, sizes);
+  }
+}
+
+/**
+ * Write one non-oneof non-map field. Matches estimateRegularFieldSize
+ * exactly so that pass 1 and pass 2 stay in sync.
+ */
+function writeRegularField(
+  c: Cursor,
+  field: DescField,
+  value: unknown,
+  sizes: SizeMap,
+): void {
+  switch (field.fieldKind) {
+    case "scalar":
+      writeTag(c, field.number, scalarWireType(field.scalar));
+      writeScalar(c, field.scalar, value);
+      return;
+    case "enum":
+      writeTag(c, field.number, WIRE_VARINT);
+      writeInt32(c, value as number);
+      return;
+    case "message": {
+      const sub = value as Record<string, unknown>;
+      const subSize = sizes.get(sub) ?? 0;
+      writeTag(c, field.number, WIRE_LENGTH_DELIMITED);
+      writeVarint32(c, subSize);
+      writeMessageInto(c, field.message, sub, sizes);
+      return;
+    }
+    case "list": {
+      const list = value as unknown[];
+      if (field.listKind === "message") {
+        for (let k = 0; k < list.length; k++) {
+          const sub = list[k] as Record<string, unknown>;
+          const subSize = sizes.get(sub) ?? 0;
+          writeTag(c, field.number, WIRE_LENGTH_DELIMITED);
+          writeVarint32(c, subSize);
+          writeMessageInto(c, field.message, sub, sizes);
+        }
+        return;
+      }
+      if (field.listKind === "enum") {
+        if (field.packed) {
+          let body = 0;
+          for (let k = 0; k < list.length; k++) {
+            body += int32Size(list[k] as number);
+          }
+          writeTag(c, field.number, WIRE_LENGTH_DELIMITED);
+          writeVarint32(c, body);
+          for (let k = 0; k < list.length; k++) {
+            writeInt32(c, list[k] as number);
+          }
+          return;
+        }
+        for (let k = 0; k < list.length; k++) {
+          writeTag(c, field.number, WIRE_VARINT);
+          writeInt32(c, list[k] as number);
+        }
+        return;
+      }
+      // scalar list
+      const t = field.scalar;
+      const wt = scalarWireType(t);
+      if (field.packed && wt !== WIRE_LENGTH_DELIMITED) {
+        let body = 0;
+        for (let k = 0; k < list.length; k++) {
+          body += scalarSize(t, list[k]);
+        }
+        writeTag(c, field.number, WIRE_LENGTH_DELIMITED);
+        writeVarint32(c, body);
+        for (let k = 0; k < list.length; k++) {
+          writeScalar(c, t, list[k]);
+        }
+        return;
+      }
+      for (let k = 0; k < list.length; k++) {
+        writeTag(c, field.number, wt);
+        writeScalar(c, t, list[k]);
+      }
+      return;
+    }
+    case "map":
+      // Map fields are dispatched through writeMapField from the caller;
+      // this branch is unreachable on the hot path but defensive.
+      writeMapField(
+        c,
+        field as DescField & { fieldKind: "map" },
+        value as Record<string, unknown>,
+        sizes,
+      );
+      return;
+  }
+}
+
 function writeMessageInto(
   c: Cursor,
   desc: DescMessage,
@@ -596,79 +897,37 @@ function writeMessageInto(
   const fields = desc.fields;
   for (let i = 0; i < fields.length; i++) {
     const field = fields[i];
-    const value = message[field.localName];
-    if (!isFieldSet(field, value, message)) continue;
+    // Oneof members: dispatched via the oneof loop below.
+    if (field.oneof !== undefined) continue;
 
-    switch (field.fieldKind) {
-      case "scalar": {
-        writeTag(c, field.number, scalarWireType(field.scalar));
-        writeScalar(c, field.scalar, value);
-        break;
-      }
-      case "enum": {
-        writeTag(c, field.number, WIRE_VARINT);
-        writeInt32(c, value as number);
-        break;
-      }
-      case "message": {
-        const sub = value as Record<string, unknown>;
-        const subSize = sizes.get(sub) ?? 0;
-        writeTag(c, field.number, WIRE_LENGTH_DELIMITED);
-        writeVarint32(c, subSize);
-        writeMessageInto(c, field.message, sub, sizes);
-        break;
-      }
-      case "list": {
-        const list = value as unknown[];
-        if (field.listKind === "message") {
-          for (let k = 0; k < list.length; k++) {
-            const sub = list[k] as Record<string, unknown>;
-            const subSize = sizes.get(sub) ?? 0;
-            writeTag(c, field.number, WIRE_LENGTH_DELIMITED);
-            writeVarint32(c, subSize);
-            writeMessageInto(c, field.message, sub, sizes);
-          }
-        } else if (field.listKind === "enum") {
-          if (field.packed) {
-            let body = 0;
-            for (let k = 0; k < list.length; k++) {
-              body += int32Size(list[k] as number);
-            }
-            writeTag(c, field.number, WIRE_LENGTH_DELIMITED);
-            writeVarint32(c, body);
-            for (let k = 0; k < list.length; k++) {
-              writeInt32(c, list[k] as number);
-            }
-          } else {
-            for (let k = 0; k < list.length; k++) {
-              writeTag(c, field.number, WIRE_VARINT);
-              writeInt32(c, list[k] as number);
-            }
-          }
-        } else {
-          // scalar list
-          const t = field.scalar;
-          const wt = scalarWireType(t);
-          if (field.packed && wt !== WIRE_LENGTH_DELIMITED) {
-            let body = 0;
-            for (let k = 0; k < list.length; k++) {
-              body += scalarSize(t, list[k]);
-            }
-            writeTag(c, field.number, WIRE_LENGTH_DELIMITED);
-            writeVarint32(c, body);
-            for (let k = 0; k < list.length; k++) {
-              writeScalar(c, t, list[k]);
-            }
-          } else {
-            for (let k = 0; k < list.length; k++) {
-              writeTag(c, field.number, wt);
-              writeScalar(c, t, list[k]);
-            }
-          }
-        }
-        break;
-      }
+    if (field.fieldKind === "map") {
+      const obj = message[field.localName] as
+        | Record<string, unknown>
+        | undefined;
+      if (!obj || Object.keys(obj).length === 0) continue;
+      writeMapField(
+        c,
+        field as DescField & { fieldKind: "map" },
+        obj,
+        sizes,
+      );
+      continue;
     }
+
+    const value = message[field.localName];
+    if (!isFieldSet(field, value)) continue;
+    writeRegularField(c, field, value, sizes);
+  }
+  const oneofs = desc.oneofs;
+  for (let i = 0; i < oneofs.length; i++) {
+    const oneof = oneofs[i];
+    const adt = message[oneof.localName] as
+      | { case: string | undefined; value?: unknown }
+      | undefined;
+    if (!adt || adt.case === undefined) continue;
+    const selected = findOneofField(oneof, adt.case);
+    if (!selected) continue;
+    writeRegularField(c, selected, adt.value, sizes);
   }
 }
 
@@ -681,9 +940,9 @@ function writeMessageInto(
  * motivation and scope.
  *
  * Falls back to {@link toBinary} when the schema uses features not yet
- * supported by the fast path (maps, oneofs, extensions, or delimited
- * encoding). Unknown fields on messages are always dropped by the fast
- * path — if you need to round-trip unknowns, use `toBinary` instead.
+ * supported by the fast path (extensions or delimited/group encoding).
+ * Unknown fields on messages are always dropped by the fast path — if
+ * you need to round-trip unknowns, use `toBinary` instead.
  *
  * @experimental This API is experimental and may change or be removed
  * without notice. The intent is to explore whether a two-pass encode

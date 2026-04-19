@@ -47,7 +47,19 @@ function buildInit(): Record<string, unknown> {
   for (let i = 0; i < SPAN_COUNT; i++) {
     const attributes: unknown[] = [];
     for (let j = 0; j < 10; j++) {
-      attributes.push({ key: `k${j}`, stringValue: `v${i}-${j}` });
+      // Mirror the distribution used in bench-comparison-protobufjs so the
+      // memory numbers reflect the same workload as the throughput runs.
+      let anyValue: Record<string, unknown>;
+      if (j === 2 || j === 5) {
+        anyValue = { value: { case: "intValue", value: BigInt(200 + j) } };
+      } else if (j === 8) {
+        anyValue = { value: { case: "boolValue", value: (i + j) % 7 === 0 } };
+      } else {
+        anyValue = {
+          value: { case: "stringValue", value: `v${i}-${j}` },
+        };
+      }
+      attributes.push({ key: `k${j}`, value: anyValue });
     }
     spans.push({
       traceId: new Uint8Array(16),
@@ -61,7 +73,14 @@ function buildInit(): Record<string, unknown> {
   return {
     resourceSpans: [
       {
-        resource: { attributes: [] },
+        resource: {
+          attributes: [],
+          labels: {
+            env: "production",
+            region: "us-east-1",
+            cluster: "bench-cluster",
+          },
+        },
         scopeSpans: [
           {
             scope: { name: "@example/tracer", version: "1.0.0" },
@@ -80,6 +99,26 @@ function buildInitForPbjs(): Record<string, unknown> {
   for (const span of resourceSpans.scopeSpans[0].spans) {
     span.startTimeUnixNano = "1700000000000000000";
     span.endTimeUnixNano = "1700000000000001000";
+    // biome-ignore lint/suspicious/noExplicitAny: in-place shape munging
+    for (const attr of span.attributes as any[]) {
+      const adt = attr.value?.value as
+        | { case: string; value: unknown }
+        | undefined;
+      if (adt) {
+        const pbjsKey =
+          adt.case === "intValue"
+            ? "intValue"
+            : adt.case === "boolValue"
+              ? "boolValue"
+              : "stringValue";
+        attr.value = {
+          [pbjsKey]:
+            adt.case === "intValue"
+              ? (adt.value as bigint).toString()
+              : adt.value,
+        };
+      }
+    }
   }
   return base;
 }

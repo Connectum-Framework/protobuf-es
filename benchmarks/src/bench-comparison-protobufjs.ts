@@ -62,7 +62,20 @@ function buildOtelLikePayload(): Record<string, unknown> {
   for (let i = 0; i < SPAN_COUNT; i++) {
     const attributes: unknown[] = [];
     for (let j = 0; j < 10; j++) {
-      attributes.push({ key: `k${j}`, stringValue: `v${i}-${j}` });
+      // AnyValue oneof: mostly string, some int, some bool — matches the
+      // distribution the fast-path benchmark feeds into the reflective
+      // encoder via the same fixture.
+      let anyValue: Record<string, unknown>;
+      if (j === 2 || j === 5) {
+        anyValue = { value: { case: "intValue", value: BigInt(200 + j) } };
+      } else if (j === 8) {
+        anyValue = { value: { case: "boolValue", value: (i + j) % 7 === 0 } };
+      } else {
+        anyValue = {
+          value: { case: "stringValue", value: `v${i}-${j}` },
+        };
+      }
+      attributes.push({ key: `k${j}`, value: anyValue });
     }
     spans.push({
       traceId: new Uint8Array(16),
@@ -76,7 +89,14 @@ function buildOtelLikePayload(): Record<string, unknown> {
   return {
     resourceSpans: [
       {
-        resource: { attributes: [] },
+        resource: {
+          attributes: [],
+          labels: {
+            env: "production",
+            region: "us-east-1",
+            cluster: "bench-cluster",
+          },
+        },
         scopeSpans: [
           {
             scope: { name: "@example/tracer", version: "1.0.0" },
@@ -91,8 +111,11 @@ function buildOtelLikePayload(): Record<string, unknown> {
 // protobufjs uses Long for 64-bit fields by default. We generate with
 // --force-long to get consistent typing; here we still pass BigInt-like
 // plain numbers via strings so both paths encode the same timestamp.
-// Prepare a payload variant with string timestamps for pbjs, so the
-// write paths are comparable (no JSON conversion cost inside the hot loop).
+// Prepare a payload variant for pbjs with:
+//   - string timestamps (no JSON conversion cost inside the hot loop)
+//   - AnyValue oneof represented as a plain field rather than the
+//     `{ case, value }` ADT protobuf-es uses, because protobufjs stores
+//     oneof members directly on the parent message.
 function buildOtelLikePayloadForPbjs(): Record<string, unknown> {
   const base = buildOtelLikePayload();
   // biome-ignore lint/suspicious/noExplicitAny: in-place shape munging
@@ -100,6 +123,27 @@ function buildOtelLikePayloadForPbjs(): Record<string, unknown> {
   for (const span of resourceSpans.scopeSpans[0].spans) {
     span.startTimeUnixNano = "1700000000000000000";
     span.endTimeUnixNano = "1700000000000001000";
+    // biome-ignore lint/suspicious/noExplicitAny: in-place shape munging
+    for (const attr of span.attributes as any[]) {
+      const adt = attr.value?.value as
+        | { case: string; value: unknown }
+        | undefined;
+      if (adt) {
+        const pbjsKey =
+          adt.case === "intValue"
+            ? "intValue"
+            : adt.case === "boolValue"
+              ? "boolValue"
+              : "stringValue";
+        // protobufjs also accepts int64 as string without Long.
+        attr.value = {
+          [pbjsKey]:
+            adt.case === "intValue"
+              ? (adt.value as bigint).toString()
+              : adt.value,
+        };
+      }
+    }
   }
   return base;
 }
