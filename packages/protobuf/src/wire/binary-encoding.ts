@@ -657,6 +657,17 @@ const UINT64_MAX_BI: bigint = /*@__PURE__*/ BigInt("18446744073709551615");
 const ZERO_BI: bigint = /*@__PURE__*/ BigInt(0);
 
 /**
+ * Inclusive upper bound of the fast number path in signed/unsigned lo-hi
+ * splitters. Equals `2^53`. Computed via `2 ** 53` to avoid a numeric
+ * literal whose absolute value reaches 2^53 (TypeScript warning 80008):
+ * such literals cannot be represented accurately as integers in source.
+ */
+const POW_2_53: number = /*@__PURE__*/ 2 ** 53;
+
+/** Inclusive lower bound of the fast number path for signed values. */
+const NEG_POW_2_53: number = /*@__PURE__*/ -(2 ** 53);
+
+/**
  * Return the number of bytes required to encode `v` as an unsigned 32-bit
  * varint. Pure helper used by `join()` and `patchVarint32At` callers.
  */
@@ -685,11 +696,7 @@ function signedInt64LoHi(value: string | number | bigint): {
     const n = value as number;
     // Safe-integer fast path — must be a finite integer within the 53-bit
     // safe range. Otherwise fall through to protoInt64 for error parity.
-    if (
-      Number.isInteger(n) &&
-      n >= -0x20000000000000 /* -2^53 */ &&
-      n <= 0x20000000000000 /* +2^53 */
-    ) {
+    if (Number.isInteger(n) && n >= NEG_POW_2_53 && n <= POW_2_53) {
       if (n >= 0) {
         const lo = n >>> 0;
         const hi = ((n - lo) / 0x100000000) >>> 0;
@@ -729,7 +736,7 @@ function unsignedInt64LoHi(value: string | number | bigint): {
   const t = typeof value;
   if (t === "number") {
     const n = value as number;
-    if (Number.isInteger(n) && n >= 0 && n <= 0x20000000000000 /* 2^53 */) {
+    if (Number.isInteger(n) && n >= 0 && n <= POW_2_53) {
       const lo = n >>> 0;
       const hi = ((n - lo) / 0x100000000) >>> 0;
       return { lo, hi };
