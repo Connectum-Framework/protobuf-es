@@ -44,12 +44,9 @@ export async function runFromBinaryBench() {
     buildExportTraceRequest(),
   );
 
-  bench.add(
-    `fromBinary() SimpleMessage (${smallBytes.byteLength} B)`,
-    () => {
-      fromBinary(SimpleMessageSchema, smallBytes);
-    },
-  );
+  bench.add(`fromBinary() SimpleMessage (${smallBytes.byteLength} B)`, () => {
+    fromBinary(SimpleMessageSchema, smallBytes);
+  });
 
   bench.add(
     `fromBinary() ExportTraceRequest (${SPAN_COUNT} spans, ${traceBytes.byteLength} B)`,

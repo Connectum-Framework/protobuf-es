@@ -82,7 +82,9 @@ function formatBytes(bytes: number | undefined): string {
  * helping; if protobufjs always wins, we still have ground to cover.
  */
 function bestEncoderRatio(row: Record<Encoder, BenchmarkResult | undefined>) {
-  const entries = ENCODERS.map((enc) => [enc, row[enc]?.opsPerSec ?? 0] as const)
+  const entries = ENCODERS.map(
+    (enc) => [enc, row[enc]?.opsPerSec ?? 0] as const,
+  )
     .filter(([, ops]) => ops > 0)
     .sort((a, b) => b[1] - a[1]);
   if (entries.length < 2) return "-";
@@ -98,9 +100,7 @@ function bestEncoderRatio(row: Record<Encoder, BenchmarkResult | undefined>) {
  * meaningful layout (simple → complex → synthetic) that we do not want to
  * re-sort alphabetically.
  */
-function groupByFixture(
-  results: BenchmarkResult[],
-): Array<{
+function groupByFixture(results: BenchmarkResult[]): Array<{
   fixture: string;
   encodedSize: number;
   perEncoder: Record<Encoder, BenchmarkResult | undefined>;
@@ -189,9 +189,7 @@ export function generateBenchmarkMarkdownTable(
   lines.push(
     `| ${header.map((h, i) => pad(h, colWidths[i], align[i])).join(" | ")} |`,
   );
-  lines.push(
-    `| ${colWidths.map((w, i) => sep(w, align[i])).join(" | ")} |`,
-  );
+  lines.push(`| ${colWidths.map((w, i) => sep(w, align[i])).join(" | ")} |`);
   for (const r of rows) {
     lines.push(
       `| ${r.map((c, i) => pad(c, colWidths[i], align[i])).join(" | ")} |`,

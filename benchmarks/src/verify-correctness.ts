@@ -28,7 +28,8 @@ import { SimpleMessageSchema } from "./gen/small_pb.js";
 import { buildExportTraceRequest, buildSmallMessage } from "./fixtures.js";
 
 function summarize(label: string, slow: Uint8Array, fast: Uint8Array): void {
-  const byteMatch = slow.length === fast.length && slow.every((b, i) => b === fast[i]);
+  const byteMatch =
+    slow.length === fast.length && slow.every((b, i) => b === fast[i]);
   console.log(
     `[${label}] slow=${slow.length}B fast=${fast.length}B bytesIdentical=${byteMatch}`,
   );

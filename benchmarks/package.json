@@ -15,7 +15,7 @@
     "bench:report": "tsx src/report.ts",
     "build": "../node_modules/typescript/bin/tsc --noEmit",
     "generate": "buf generate && npm run generate:protobufjs",
-    "generate:protobufjs": "pbjs -t static-module -w commonjs --force-long -o src/gen-protobufjs/nested.cjs proto/nested.proto",
+    "generate:protobufjs": "mkdir -p src/gen-protobufjs && pbjs -t static-module -w commonjs --force-long -o src/gen-protobufjs/nested.cjs proto/nested.proto",
     "format": "biome format --write",
     "license-header": "license-header",
     "lint": "biome lint --error-on-warnings"

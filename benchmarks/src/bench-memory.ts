@@ -182,23 +182,17 @@ async function main() {
   const samples: MemSample[] = [];
 
   samples.push(
-    measure(
-      `protobuf-es: create + toBinary (${SPAN_COUNT} spans)`,
-      () => {
-        const msg = create(ExportTraceRequestSchema, initEs);
-        toBinary(ExportTraceRequestSchema, msg);
-      },
-    ),
+    measure(`protobuf-es: create + toBinary (${SPAN_COUNT} spans)`, () => {
+      const msg = create(ExportTraceRequestSchema, initEs);
+      toBinary(ExportTraceRequestSchema, msg);
+    }),
   );
 
   samples.push(
-    measure(
-      `protobuf-es: create + toBinaryFast (${SPAN_COUNT} spans)`,
-      () => {
-        const msg = create(ExportTraceRequestSchema, initEs);
-        toBinaryFast(ExportTraceRequestSchema, msg);
-      },
-    ),
+    measure(`protobuf-es: create + toBinaryFast (${SPAN_COUNT} spans)`, () => {
+      const msg = create(ExportTraceRequestSchema, initEs);
+      toBinaryFast(ExportTraceRequestSchema, msg);
+    }),
   );
 
   samples.push(

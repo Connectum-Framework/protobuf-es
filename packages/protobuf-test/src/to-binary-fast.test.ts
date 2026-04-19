@@ -27,10 +27,7 @@ import {
   fromBinary,
   protoInt64,
 } from "@bufbuild/protobuf";
-import {
-  MapsMessageSchema,
-  MapsEnum,
-} from "./gen/ts/extra/msg-maps_pb.js";
+import { MapsMessageSchema, MapsEnum } from "./gen/ts/extra/msg-maps_pb.js";
 import {
   OneofMessageSchema,
   OneofMessageFooSchema,

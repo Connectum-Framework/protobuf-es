@@ -410,7 +410,8 @@ function estimateMapEntryBody(
 ): { body: number; valueSubSize: number } {
   // Entry key is always field number 1.
   const keySize =
-    tagSize(1, scalarWireType(field.mapKey)) + scalarSize(field.mapKey, keyTyped);
+    tagSize(1, scalarWireType(field.mapKey)) +
+    scalarSize(field.mapKey, keyTyped);
   let valSize: number;
   let valueSubSize = 0;
   switch (field.mapKind) {
@@ -913,12 +914,7 @@ function writeMessageInto(
         | Record<string, unknown>
         | undefined;
       if (!obj || Object.keys(obj).length === 0) continue;
-      writeMapField(
-        c,
-        field as DescField & { fieldKind: "map" },
-        obj,
-        sizes,
-      );
+      writeMapField(c, field as DescField & { fieldKind: "map" }, obj, sizes);
       continue;
     }
 
