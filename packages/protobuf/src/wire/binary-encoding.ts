@@ -140,7 +140,7 @@ export class BinaryWriter {
     private readonly encodeUtf8: (
       text: string,
     ) => Uint8Array = getTextEncoding().encodeUtf8,
-    initialCapacity: number = 1024,
+    initialCapacity = 1024,
   ) {
     const cap = initialCapacity > 0 ? initialCapacity : 1024;
     this.initialCapacity = cap;

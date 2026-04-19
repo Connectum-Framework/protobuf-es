@@ -61,10 +61,7 @@ void suite("BinaryWriter (L0 contiguous-buffer)", () => {
         }
         expected.push(v);
       }
-      assert.deepStrictEqual(
-        Array.from(writer.finish()),
-        expected,
-      );
+      assert.deepStrictEqual(Array.from(writer.finish()), expected);
     });
   });
 
