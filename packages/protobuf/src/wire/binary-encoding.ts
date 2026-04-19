@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {
-  varint32read,
-  varint32write,
-  varint64read,
-  varint64write,
-} from "./varint.js";
+import { varint32read, varint64read } from "./varint.js";
 import { protoInt64 } from "../proto-int64.js";
 import { getTextEncoding } from "./text-encoding.js";
 
@@ -93,90 +88,166 @@ export const INT32_MAX = 0x7fffffff;
  */
 export const INT32_MIN = -0x80000000;
 
+/**
+ * L0 contiguous-buffer BinaryWriter.
+ *
+ * Replaces the legacy chunk-list + scratch-array state with a single growable
+ * Uint8Array plus an integer-offset stack for `fork()`/`join()` framing.
+ *
+ * Public wire surface is identical to the legacy writer (same 20 methods,
+ * same signatures, byte-identical output). Three additive helpers
+ * (`ensureCapacity`, `currentOffset`, `patchVarint32At`) are exposed for
+ * upcoming L1/L2 consumers.
+ *
+ * Implementation notes:
+ *  - D1/D2/D3: single Uint8Array, initial capacity 1024, 2× growth.
+ *  - D4/D5/D6: fork/join use a 1-byte varint placeholder + `copyWithin` shift.
+ *    Fork stack stores integer offsets only — no per-fork object allocation.
+ *  - D7: `string()` probes for ASCII and writes bytes inline, falling back to
+ *    the injected UTF-8 encoder for non-ASCII input.
+ *  - D8: `finish()` returns `buf.subarray(0, pos)` — no extra copy. The
+ *    returned view shares the writer's backing buffer. The writer is
+ *    single-shot; construct a fresh instance per encode (D9).
+ *  - D10: removed the `protected buf: number[]` field from the legacy writer.
+ *  - D11: `DataView` cached and rebuilt on grow.
+ *  - D13: int64 family uses a `typeof` tri-dispatch (number/bigint/string).
+ */
 export class BinaryWriter {
-  /**
-   * We cannot allocate a buffer for the entire output
-   * because we don't know its size.
-   *
-   * So we collect smaller chunks of known size and
-   * concat them later.
-   *
-   * Use `raw()` to push data to this array. It will flush
-   * `buf` first.
-   */
-  private chunks: Uint8Array[];
+  /** Contiguous growable buffer. Bytes in [0, pos) are valid output. */
+  private buf: Uint8Array;
+
+  /** Write cursor. */
+  private pos = 0;
+
+  /** Lazy DataView over `buf`. Rebuilt on grow. */
+  private view: DataView;
+
+  /** Stack of reserved length-placeholder offsets for active forks. */
+  private stack: number[] = [];
+
+  /** Initial capacity used when resetting after `finish()`. */
+  private readonly initialCapacity: number;
 
   /**
-   * A growing buffer for byte values. If you don't know
-   * the size of the data you are writing, push to this
-   * array.
+   * Set to `true` by `finish()` to indicate the next write must allocate a
+   * fresh backing buffer. Defers the reset allocation from `finish()` to the
+   * first reuse write, keeping the single-shot path (one encode per writer)
+   * allocation-free beyond the encoded bytes themselves.
    */
-  protected buf: number[];
-
-  /**
-   * Previous fork states.
-   */
-  private stack: Array<{ chunks: Uint8Array[]; buf: number[] }> = [];
+  private dirtyAfterFinish = false;
 
   constructor(
     private readonly encodeUtf8: (
       text: string,
     ) => Uint8Array = getTextEncoding().encodeUtf8,
+    initialCapacity: number = 1024,
   ) {
-    this.chunks = [];
-    this.buf = [];
+    const cap = initialCapacity > 0 ? initialCapacity : 1024;
+    this.initialCapacity = cap;
+    this.buf = new Uint8Array(cap);
+    this.view = new DataView(this.buf.buffer, this.buf.byteOffset);
+  }
+
+  // ── Additive L0 API ─────────────────────────────────────────────────────
+
+  /**
+   * Ensure at least `n` additional bytes are writable at `pos`.
+   *
+   * Grows the backing buffer by doubling (at minimum) until it can hold
+   * `pos + n` bytes. Invalidates and rebuilds the cached `DataView`.
+   */
+  ensureCapacity(n: number): void {
+    // If the previous encode finished, swap in a fresh buffer before writing
+    // so the returned subarray view stays stable.
+    if (this.dirtyAfterFinish) {
+      this.buf = new Uint8Array(this.initialCapacity);
+      this.view = new DataView(this.buf.buffer, this.buf.byteOffset);
+      this.dirtyAfterFinish = false;
+    }
+    const need = this.pos + n;
+    const cur = this.buf.length;
+    if (need <= cur) return;
+    let cap = cur * 2;
+    if (cap === 0) cap = 1024;
+    while (cap < need) cap *= 2;
+    const next = new Uint8Array(cap);
+    next.set(this.buf);
+    this.buf = next;
+    this.view = new DataView(next.buffer, next.byteOffset);
   }
 
   /**
-   * Return all bytes written and reset this writer.
+   * Return the current write offset.
+   */
+  currentOffset(): number {
+    return this.pos;
+  }
+
+  /**
+   * Back-patch an unsigned 32-bit varint at a previously reserved offset.
+   *
+   * Contract: the caller is responsible for having reserved at least
+   * `computeVarint32Size(value)` bytes at `offset`. No bounds check — this is
+   * a performance primitive for L1/L2 consumers.
+   */
+  patchVarint32At(offset: number, value: number): void {
+    this.writeVarint32At(offset, value >>> 0);
+  }
+
+  // ── Preserved public API ────────────────────────────────────────────────
+
+  /**
+   * Return all bytes written and reset this writer for reuse.
+   *
+   * The returned Uint8Array is a subarray view over the writer's previous
+   * internal buffer — no copy is made. The writer installs a fresh buffer for
+   * subsequent writes so the returned slice is not clobbered by reuse. As in
+   * the legacy writer, the `stack` is cleared and `pos` reset to 0.
    */
   finish(): Uint8Array<ArrayBuffer> {
-    if (this.buf.length) {
-      this.chunks.push(new Uint8Array(this.buf)); // flush the buffer
-      this.buf = [];
-    }
-    let len = 0;
-    for (let i = 0; i < this.chunks.length; i++) len += this.chunks[i].length;
-    let bytes = new Uint8Array(len);
-    let offset = 0;
-    for (let i = 0; i < this.chunks.length; i++) {
-      bytes.set(this.chunks[i], offset);
-      offset += this.chunks[i].length;
-    }
-    this.chunks = [];
-    return bytes;
+    const out = this.buf.subarray(0, this.pos) as Uint8Array<ArrayBuffer>;
+    // Lazily swap buffers on the next write rather than here — keeps
+    // single-shot encoding allocation-free beyond `out` itself.
+    this.pos = 0;
+    this.stack.length = 0;
+    this.dirtyAfterFinish = true;
+    return out;
   }
 
   /**
-   * Start a new fork for length-delimited data like a message
-   * or a packed repeated field.
+   * Start a new fork for length-delimited data like a message or a packed
+   * repeated field. Reserves a single-byte placeholder for the payload length
+   * varint; the caller writes the payload and then calls `join()`.
    *
    * Must be joined later with `join()`.
    */
   fork(): this {
-    this.stack.push({ chunks: this.chunks, buf: this.buf });
-    this.chunks = [];
-    this.buf = [];
+    this.ensureCapacity(1);
+    this.stack.push(this.pos);
+    this.pos += 1;
     return this;
   }
 
   /**
-   * Join the last fork. Write its length and bytes, then
-   * return to the previous state.
+   * Join the last fork. Computes the payload length, shifts the payload right
+   * if the length varint needs more than one byte, then patches the varint at
+   * the reserved placeholder offset.
    */
   join(): this {
-    // get chunk of fork
-    let chunk = this.finish();
-
-    // restore previous state
-    let prev = this.stack.pop();
-    if (!prev) throw new Error("invalid state, fork stack empty");
-    this.chunks = prev.chunks;
-    this.buf = prev.buf;
-
-    // write length of chunk as varint
-    this.uint32(chunk.byteLength);
-    return this.raw(chunk);
+    const placeholder = this.stack.pop();
+    if (placeholder === undefined)
+      throw new Error("invalid state, fork stack empty");
+    const contentStart = placeholder + 1;
+    const contentLen = this.pos - contentStart;
+    const varintSize = computeVarint32Size(contentLen);
+    if (varintSize > 1) {
+      const shift = varintSize - 1;
+      this.ensureCapacity(shift);
+      this.buf.copyWithin(contentStart + shift, contentStart, this.pos);
+      this.pos += shift;
+    }
+    this.writeVarint32At(placeholder, contentLen);
+    return this;
   }
 
   /**
@@ -194,11 +265,10 @@ export class BinaryWriter {
    * Write a chunk of raw bytes.
    */
   raw(chunk: Uint8Array): this {
-    if (this.buf.length) {
-      this.chunks.push(new Uint8Array(this.buf));
-      this.buf = [];
-    }
-    this.chunks.push(chunk);
+    const len = chunk.byteLength;
+    this.ensureCapacity(len);
+    this.buf.set(chunk, this.pos);
+    this.pos += len;
     return this;
   }
 
@@ -207,14 +277,31 @@ export class BinaryWriter {
    */
   uint32(value: number): this {
     assertUInt32(value);
-
-    // write value as varint 32, inlined for speed
-    while (value > 0x7f) {
-      this.buf.push((value & 0x7f) | 0x80);
-      value = value >>> 7;
+    this.ensureCapacity(5);
+    const buf = this.buf;
+    let p = this.pos;
+    if (value < 0x80) {
+      buf[p++] = value;
+    } else if (value < 0x4000) {
+      buf[p++] = (value & 0x7f) | 0x80;
+      buf[p++] = value >>> 7;
+    } else if (value < 0x200000) {
+      buf[p++] = (value & 0x7f) | 0x80;
+      buf[p++] = ((value >>> 7) & 0x7f) | 0x80;
+      buf[p++] = value >>> 14;
+    } else if (value < 0x10000000) {
+      buf[p++] = (value & 0x7f) | 0x80;
+      buf[p++] = ((value >>> 7) & 0x7f) | 0x80;
+      buf[p++] = ((value >>> 14) & 0x7f) | 0x80;
+      buf[p++] = value >>> 21;
+    } else {
+      buf[p++] = (value & 0x7f) | 0x80;
+      buf[p++] = ((value >>> 7) & 0x7f) | 0x80;
+      buf[p++] = ((value >>> 14) & 0x7f) | 0x80;
+      buf[p++] = ((value >>> 21) & 0x7f) | 0x80;
+      buf[p++] = value >>> 28;
     }
-    this.buf.push(value);
-
+    this.pos = p;
     return this;
   }
 
@@ -223,7 +310,47 @@ export class BinaryWriter {
    */
   int32(value: number): this {
     assertInt32(value);
-    varint32write(value, this.buf);
+    if (value >= 0) {
+      // Same as uint32 varint encoding for non-negative values.
+      this.ensureCapacity(5);
+      const buf = this.buf;
+      let p = this.pos;
+      if (value < 0x80) {
+        buf[p++] = value;
+      } else if (value < 0x4000) {
+        buf[p++] = (value & 0x7f) | 0x80;
+        buf[p++] = value >>> 7;
+      } else if (value < 0x200000) {
+        buf[p++] = (value & 0x7f) | 0x80;
+        buf[p++] = ((value >>> 7) & 0x7f) | 0x80;
+        buf[p++] = value >>> 14;
+      } else if (value < 0x10000000) {
+        buf[p++] = (value & 0x7f) | 0x80;
+        buf[p++] = ((value >>> 7) & 0x7f) | 0x80;
+        buf[p++] = ((value >>> 14) & 0x7f) | 0x80;
+        buf[p++] = value >>> 21;
+      } else {
+        buf[p++] = (value & 0x7f) | 0x80;
+        buf[p++] = ((value >>> 7) & 0x7f) | 0x80;
+        buf[p++] = ((value >>> 14) & 0x7f) | 0x80;
+        buf[p++] = ((value >>> 21) & 0x7f) | 0x80;
+        buf[p++] = value >>> 28;
+      }
+      this.pos = p;
+    } else {
+      // Negative int32 is sign-extended to 10-byte varint (matching the
+      // legacy `varint32write` negative path).
+      this.ensureCapacity(10);
+      const buf = this.buf;
+      let p = this.pos;
+      let v = value;
+      for (let i = 0; i < 9; i++) {
+        buf[p++] = (v & 0x7f) | 0x80;
+        v = v >> 7;
+      }
+      buf[p++] = 1;
+      this.pos = p;
+    }
     return this;
   }
 
@@ -231,7 +358,8 @@ export class BinaryWriter {
    * Write a `bool` value, a varint.
    */
   bool(value: boolean): this {
-    this.buf.push(value ? 1 : 0);
+    this.ensureCapacity(1);
+    this.buf[this.pos++] = value ? 1 : 0;
     return this;
   }
 
@@ -239,17 +367,53 @@ export class BinaryWriter {
    * Write a `bytes` value, length-delimited arbitrary data.
    */
   bytes(value: Uint8Array): this {
-    this.uint32(value.byteLength); // write length of chunk as varint
-    return this.raw(value);
+    const len = value.byteLength;
+    this.uint32(len);
+    this.ensureCapacity(len);
+    this.buf.set(value, this.pos);
+    this.pos += len;
+    return this;
   }
 
   /**
    * Write a `string` value, length-delimited data converted to UTF-8 text.
+   *
+   * Uses a single-pass ASCII fast path: if every code unit is ≤ 0x7f, bytes
+   * are written inline without invoking `TextEncoder`. Otherwise falls back
+   * to the injected UTF-8 encoder. Non-string inputs are routed through the
+   * encoder (which coerces via `String()`), matching legacy behaviour.
    */
   string(value: string): this {
-    let chunk = this.encodeUtf8(value);
-    this.uint32(chunk.byteLength); // write length of chunk as varint
-    return this.raw(chunk);
+    if (typeof value === "string") {
+      const len = value.length;
+      // Single-pass ASCII probe.
+      let isAscii = true;
+      for (let i = 0; i < len; i++) {
+        if (value.charCodeAt(i) > 0x7f) {
+          isAscii = false;
+          break;
+        }
+      }
+      if (isAscii) {
+        this.uint32(len);
+        this.ensureCapacity(len);
+        const buf = this.buf;
+        let p = this.pos;
+        for (let i = 0; i < len; i++) {
+          buf[p++] = value.charCodeAt(i);
+        }
+        this.pos = p;
+        return this;
+      }
+    }
+    // Fallback: non-string or non-ASCII — let the injected encoder handle it.
+    const bytes = this.encodeUtf8(value);
+    const blen = bytes.byteLength;
+    this.uint32(blen);
+    this.ensureCapacity(blen);
+    this.buf.set(bytes, this.pos);
+    this.pos += blen;
+    return this;
   }
 
   /**
@@ -257,18 +421,20 @@ export class BinaryWriter {
    */
   float(value: number): this {
     assertFloat32(value);
-    let chunk = new Uint8Array(4);
-    new DataView(chunk.buffer).setFloat32(0, value, true);
-    return this.raw(chunk);
+    this.ensureCapacity(4);
+    this.view.setFloat32(this.pos, value, true);
+    this.pos += 4;
+    return this;
   }
 
   /**
    * Write a `double` value, a 64-bit floating point number.
    */
   double(value: number): this {
-    let chunk = new Uint8Array(8);
-    new DataView(chunk.buffer).setFloat64(0, value, true);
-    return this.raw(chunk);
+    this.ensureCapacity(8);
+    this.view.setFloat64(this.pos, value, true);
+    this.pos += 8;
+    return this;
   }
 
   /**
@@ -276,9 +442,10 @@ export class BinaryWriter {
    */
   fixed32(value: number): this {
     assertUInt32(value);
-    let chunk = new Uint8Array(4);
-    new DataView(chunk.buffer).setUint32(0, value, true);
-    return this.raw(chunk);
+    this.ensureCapacity(4);
+    this.view.setUint32(this.pos, value, true);
+    this.pos += 4;
+    return this;
   }
 
   /**
@@ -286,9 +453,10 @@ export class BinaryWriter {
    */
   sfixed32(value: number): this {
     assertInt32(value);
-    let chunk = new Uint8Array(4);
-    new DataView(chunk.buffer).setInt32(0, value, true);
-    return this.raw(chunk);
+    this.ensureCapacity(4);
+    this.view.setInt32(this.pos, value, true);
+    this.pos += 4;
+    return this;
   }
 
   /**
@@ -297,8 +465,33 @@ export class BinaryWriter {
   sint32(value: number): this {
     assertInt32(value);
     // zigzag encode
-    value = ((value << 1) ^ (value >> 31)) >>> 0;
-    varint32write(value, this.buf);
+    const zz = ((value << 1) ^ (value >> 31)) >>> 0;
+    // zz is unsigned 32-bit — reuse uint32 encoding path.
+    this.ensureCapacity(5);
+    const buf = this.buf;
+    let p = this.pos;
+    if (zz < 0x80) {
+      buf[p++] = zz;
+    } else if (zz < 0x4000) {
+      buf[p++] = (zz & 0x7f) | 0x80;
+      buf[p++] = zz >>> 7;
+    } else if (zz < 0x200000) {
+      buf[p++] = (zz & 0x7f) | 0x80;
+      buf[p++] = ((zz >>> 7) & 0x7f) | 0x80;
+      buf[p++] = zz >>> 14;
+    } else if (zz < 0x10000000) {
+      buf[p++] = (zz & 0x7f) | 0x80;
+      buf[p++] = ((zz >>> 7) & 0x7f) | 0x80;
+      buf[p++] = ((zz >>> 14) & 0x7f) | 0x80;
+      buf[p++] = zz >>> 21;
+    } else {
+      buf[p++] = (zz & 0x7f) | 0x80;
+      buf[p++] = ((zz >>> 7) & 0x7f) | 0x80;
+      buf[p++] = ((zz >>> 14) & 0x7f) | 0x80;
+      buf[p++] = ((zz >>> 21) & 0x7f) | 0x80;
+      buf[p++] = zz >>> 28;
+    }
+    this.pos = p;
     return this;
   }
 
@@ -306,32 +499,26 @@ export class BinaryWriter {
    * Write a `sfixed64` value, a signed, fixed-length 64-bit integer.
    */
   sfixed64(value: string | number | bigint): this {
-    let chunk = new Uint8Array(8),
-      view = new DataView(chunk.buffer),
-      tc = protoInt64.enc(value);
-    view.setInt32(0, tc.lo, true);
-    view.setInt32(4, tc.hi, true);
-    return this.raw(chunk);
+    const lh = signedInt64LoHi(value);
+    this.writeFixed64LoHi(lh.lo, lh.hi);
+    return this;
   }
 
   /**
    * Write a `fixed64` value, an unsigned, fixed-length 64 bit integer.
    */
   fixed64(value: string | number | bigint): this {
-    let chunk = new Uint8Array(8),
-      view = new DataView(chunk.buffer),
-      tc = protoInt64.uEnc(value);
-    view.setInt32(0, tc.lo, true);
-    view.setInt32(4, tc.hi, true);
-    return this.raw(chunk);
+    const lh = unsignedInt64LoHi(value);
+    this.writeFixed64LoHi(lh.lo, lh.hi);
+    return this;
   }
 
   /**
    * Write a `int64` value, a signed 64-bit varint.
    */
   int64(value: string | number | bigint): this {
-    let tc = protoInt64.enc(value);
-    varint64write(tc.lo, tc.hi, this.buf);
+    const lh = signedInt64LoHi(value);
+    this.writeVarint64(lh.lo, lh.hi);
     return this;
   }
 
@@ -339,12 +526,12 @@ export class BinaryWriter {
    * Write a `sint64` value, a signed, zig-zag-encoded 64-bit varint.
    */
   sint64(value: string | number | bigint): this {
-    const tc = protoInt64.enc(value),
-      // zigzag encode
-      sign = tc.hi >> 31,
-      lo = (tc.lo << 1) ^ sign,
-      hi = ((tc.hi << 1) | (tc.lo >>> 31)) ^ sign;
-    varint64write(lo, hi, this.buf);
+    const lh = signedInt64LoHi(value);
+    // zigzag encode
+    const sign = lh.hi >> 31;
+    const zLo = ((lh.lo << 1) ^ sign) >>> 0;
+    const zHi = (((lh.hi << 1) | (lh.lo >>> 31)) ^ sign) >>> 0;
+    this.writeVarint64(zLo, zHi);
     return this;
   }
 
@@ -352,10 +539,211 @@ export class BinaryWriter {
    * Write a `uint64` value, an unsigned 64-bit varint.
    */
   uint64(value: string | number | bigint): this {
-    const tc = protoInt64.uEnc(value);
-    varint64write(tc.lo, tc.hi, this.buf);
+    const lh = unsignedInt64LoHi(value);
+    this.writeVarint64(lh.lo, lh.hi);
     return this;
   }
+
+  // ── Private helpers ─────────────────────────────────────────────────────
+
+  /**
+   * Write an unsigned 32-bit varint at a given offset.
+   *
+   * Caller is responsible for ensuring the buffer has enough room at that
+   * offset (via `ensureCapacity` or prior reservation).
+   */
+  private writeVarint32At(offset: number, v: number): void {
+    const buf = this.buf;
+    if (v < 0x80) {
+      buf[offset] = v;
+    } else if (v < 0x4000) {
+      buf[offset] = (v & 0x7f) | 0x80;
+      buf[offset + 1] = v >>> 7;
+    } else if (v < 0x200000) {
+      buf[offset] = (v & 0x7f) | 0x80;
+      buf[offset + 1] = ((v >>> 7) & 0x7f) | 0x80;
+      buf[offset + 2] = v >>> 14;
+    } else if (v < 0x10000000) {
+      buf[offset] = (v & 0x7f) | 0x80;
+      buf[offset + 1] = ((v >>> 7) & 0x7f) | 0x80;
+      buf[offset + 2] = ((v >>> 14) & 0x7f) | 0x80;
+      buf[offset + 3] = v >>> 21;
+    } else {
+      buf[offset] = (v & 0x7f) | 0x80;
+      buf[offset + 1] = ((v >>> 7) & 0x7f) | 0x80;
+      buf[offset + 2] = ((v >>> 14) & 0x7f) | 0x80;
+      buf[offset + 3] = ((v >>> 21) & 0x7f) | 0x80;
+      buf[offset + 4] = v >>> 28;
+    }
+  }
+
+  /**
+   * Write 8 little-endian bytes for `fixed64` / `sfixed64` from 32-bit halves.
+   */
+  private writeFixed64LoHi(lo: number, hi: number): void {
+    this.ensureCapacity(8);
+    const buf = this.buf;
+    const p = this.pos;
+    buf[p] = lo & 0xff;
+    buf[p + 1] = (lo >>> 8) & 0xff;
+    buf[p + 2] = (lo >>> 16) & 0xff;
+    buf[p + 3] = (lo >>> 24) & 0xff;
+    buf[p + 4] = hi & 0xff;
+    buf[p + 5] = (hi >>> 8) & 0xff;
+    buf[p + 6] = (hi >>> 16) & 0xff;
+    buf[p + 7] = (hi >>> 24) & 0xff;
+    this.pos = p + 8;
+  }
+
+  /**
+   * Write a 64-bit varint given as two 32-bit halves.
+   *
+   * Mirrors `varint64write` byte-for-byte but writes into the contiguous
+   * buffer instead of pushing into a `number[]`.
+   */
+  private writeVarint64(lo: number, hi: number): void {
+    this.ensureCapacity(10);
+    const buf = this.buf;
+    let p = this.pos;
+    // First 4 bytes from `lo` (7 bits × 4 = 28 bits).
+    for (let i = 0; i < 28; i += 7) {
+      const shift = lo >>> i;
+      const hasNext = !(shift >>> 7 === 0 && hi === 0);
+      buf[p++] = (hasNext ? shift | 0x80 : shift) & 0xff;
+      if (!hasNext) {
+        this.pos = p;
+        return;
+      }
+    }
+    // The 5th byte splits across lo/hi.
+    const splitBits = ((lo >>> 28) & 0x0f) | ((hi & 0x07) << 4);
+    const hasMoreBits = !(hi >> 3 === 0);
+    buf[p++] = (hasMoreBits ? splitBits | 0x80 : splitBits) & 0xff;
+    if (!hasMoreBits) {
+      this.pos = p;
+      return;
+    }
+    // Remaining bytes from `hi` (7 bits at a time, shift starts at 3).
+    for (let i = 3; i < 31; i += 7) {
+      const shift = hi >>> i;
+      const hasNext = !(shift >>> 7 === 0);
+      buf[p++] = (hasNext ? shift | 0x80 : shift) & 0xff;
+      if (!hasNext) {
+        this.pos = p;
+        return;
+      }
+    }
+    // Final byte: top bit of hi.
+    buf[p++] = (hi >>> 31) & 0x01;
+    this.pos = p;
+  }
+}
+
+/**
+ * Shift amount used for extracting the high 32 bits of a bigint 64-bit value.
+ *
+ * A module-level constant avoids bigint literals (`32n`), which require
+ * targeting ES2020 — this file targets ES2017 per tsconfig.base.json.
+ */
+const BIGINT_32: bigint = /*@__PURE__*/ BigInt(32);
+
+/** Inclusive lower bound of signed int64 expressed as bigint. */
+const INT64_MIN_BI: bigint = /*@__PURE__*/ BigInt("-9223372036854775808");
+/** Inclusive upper bound of signed int64 expressed as bigint. */
+const INT64_MAX_BI: bigint = /*@__PURE__*/ BigInt("9223372036854775807");
+/** Inclusive upper bound of unsigned uint64 expressed as bigint. */
+const UINT64_MAX_BI: bigint = /*@__PURE__*/ BigInt("18446744073709551615");
+/** Zero as bigint (avoids `0n` literal on ES2017). */
+const ZERO_BI: bigint = /*@__PURE__*/ BigInt(0);
+
+/**
+ * Return the number of bytes required to encode `v` as an unsigned 32-bit
+ * varint. Pure helper used by `join()` and `patchVarint32At` callers.
+ */
+function computeVarint32Size(v: number): number {
+  if (v < 0x80) return 1;
+  if (v < 0x4000) return 2;
+  if (v < 0x200000) return 3;
+  if (v < 0x10000000) return 4;
+  return 5;
+}
+
+/**
+ * Split a signed 64-bit value into (lo, hi) 32-bit halves with two's
+ * complement representation for negatives. Handles `number` (safe integer
+ * fast path), `bigint` (range-checked), or string (delegated to protoInt64).
+ *
+ * Invalid inputs are delegated to `protoInt64.enc()` so error messages match
+ * the legacy writer byte-for-byte.
+ */
+function signedInt64LoHi(value: string | number | bigint): {
+  lo: number;
+  hi: number;
+} {
+  const t = typeof value;
+  if (t === "number") {
+    const n = value as number;
+    // Safe-integer fast path — must be a finite integer within the 53-bit
+    // safe range. Otherwise fall through to protoInt64 for error parity.
+    if (
+      Number.isInteger(n) &&
+      n >= -0x20000000000000 /* -2^53 */ &&
+      n <= 0x20000000000000 /* +2^53 */
+    ) {
+      if (n >= 0) {
+        const lo = n >>> 0;
+        const hi = ((n - lo) / 0x100000000) >>> 0;
+        return { lo, hi };
+      }
+      const abs = -n;
+      const aLo = abs >>> 0;
+      const aHi = ((abs - aLo) / 0x100000000) >>> 0;
+      // two's complement: ~abs + 1
+      const lo = (~aLo + 1) >>> 0;
+      const hi = (~aHi + (lo === 0 ? 1 : 0)) >>> 0;
+      return { lo, hi };
+    }
+  } else if (t === "bigint") {
+    const b = value as bigint;
+    if (b >= INT64_MIN_BI && b <= INT64_MAX_BI) {
+      const lo = Number(BigInt.asUintN(32, b)) >>> 0;
+      const hi = Number(BigInt.asUintN(32, b >> BIGINT_32)) >>> 0;
+      return { lo, hi };
+    }
+  }
+  // Fallback: let protoInt64 validate and either encode the value or throw
+  // with the exact error message format expected by the legacy writer.
+  const tc = protoInt64.enc(value);
+  return { lo: tc.lo, hi: tc.hi };
+}
+
+/**
+ * Split an unsigned 64-bit value into (lo, hi) 32-bit halves. Mirrors
+ * `signedInt64LoHi` but validates against the unsigned range; invalid
+ * inputs are delegated to `protoInt64.uEnc()` for error parity.
+ */
+function unsignedInt64LoHi(value: string | number | bigint): {
+  lo: number;
+  hi: number;
+} {
+  const t = typeof value;
+  if (t === "number") {
+    const n = value as number;
+    if (Number.isInteger(n) && n >= 0 && n <= 0x20000000000000 /* 2^53 */) {
+      const lo = n >>> 0;
+      const hi = ((n - lo) / 0x100000000) >>> 0;
+      return { lo, hi };
+    }
+  } else if (t === "bigint") {
+    const b = value as bigint;
+    if (b >= ZERO_BI && b <= UINT64_MAX_BI) {
+      const lo = Number(BigInt.asUintN(32, b)) >>> 0;
+      const hi = Number(BigInt.asUintN(32, b >> BIGINT_32)) >>> 0;
+      return { lo, hi };
+    }
+  }
+  const tc = protoInt64.uEnc(value);
+  return { lo: tc.lo, hi: tc.hi };
 }
 
 export class BinaryReader {
