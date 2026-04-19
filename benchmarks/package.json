@@ -11,6 +11,8 @@
     "bench:fromBinary": "tsx src/bench-fromBinary.ts",
     "bench:comparison": "tsx src/bench-comparison-protobufjs.ts",
     "bench:matrix": "tsx src/bench-matrix.ts",
+    "bench:matrix:ci": "bash scripts/run-matrix-ci.sh bench-results.json",
+    "bench:matrix:compare": "tsx scripts/compare-results.ts",
     "bench:memory": "node --expose-gc --import tsx src/bench-memory.ts",
     "bench:report": "tsx src/report.ts",
     "build": "../node_modules/typescript/bin/tsc --noEmit",

@@ -154,7 +154,12 @@ const cases: MatrixCase[] = [
 ];
 
 export async function runMatrixBench() {
-  const bench = new Bench({ time: 1000, warmupTime: 200 });
+  // Time budgets: defaults tuned for local dev feedback. CI sets
+  // BENCH_MATRIX_TIME / BENCH_MATRIX_WARMUP via run-matrix-ci.sh to get
+  // tighter RME on long-running hosts. Values are ms.
+  const time = Number(process.env.BENCH_MATRIX_TIME) || 1000;
+  const warmupTime = Number(process.env.BENCH_MATRIX_WARMUP) || 200;
+  const bench = new Bench({ time, warmupTime });
 
   // Pre-build every message + pre-encoded bytes outside the measurement
   // loop so the encoder/decoder benchmarks reflect the encode/decode walk
