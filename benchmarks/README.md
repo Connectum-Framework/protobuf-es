@@ -24,6 +24,7 @@ npm run bench:create-toBinary -w @bufbuild/protobuf-benchmarks
 npm run bench:fromBinary -w @bufbuild/protobuf-benchmarks
 npm run bench:fromJson-path -w @bufbuild/protobuf-benchmarks
 npm run bench:comparison -w @bufbuild/protobuf-benchmarks
+npm run bench:matrix -w @bufbuild/protobuf-benchmarks
 npm run bench:memory -w @bufbuild/protobuf-benchmarks
 ```
 
@@ -37,6 +38,7 @@ npm run bench:memory -w @bufbuild/protobuf-benchmarks
 | `bench-fromBinary.ts` | Cost of `fromBinary(Schema, bytes)` on pre-encoded payloads — reflective decoder walk in isolation |
 | `bench-fromJson-path.ts` | `fromJsonString + toBinary` and `fromJson + toBinary` paths on the same fixture. The first one is the #6221 regression shape; the second is the partial-fix midpoint |
 | `bench-comparison-protobufjs.ts` | Cross-library comparison: protobuf-es vs `protobufjs` (pbjs static codegen) on the same `.proto` fixture. Covers full roundtrip, encode-only, decode-only |
+| `bench-matrix.ts` | `toBinary` + `fromBinary` across the full realistic-fixture matrix (OTel traces/metrics/logs, K8s Pod list, GraphQL request/response, RPC envelope, stress). Emits a JSON summary on stdout for CI diffing |
 | `bench-memory.ts` | Heap allocations per operation (`heapUsed` delta after forced GC) for both libraries. Requires `--expose-gc` |
 
 ## Methodology
@@ -51,9 +53,50 @@ npm run bench:memory -w @bufbuild/protobuf-benchmarks
 
 ## Fixtures
 
-The fixture in `proto/nested.proto` is a simplified subset of the [OTLP `ExportTraceServiceRequest`](https://github.com/open-telemetry/opentelemetry-proto/blob/main/opentelemetry/proto/collector/trace/v1/trace_service.proto) — enough shape (bytes fields, fixed64 timestamps, repeated nested `KeyValue`, two levels of grouping) to be representative of a real export hot path without dragging in the full OpenTelemetry proto dependency graph. The default payload is 100 spans, each with 10 attributes.
+The suite runs across a matrix of payload shapes so a regression can be
+attributed to a class of workload rather than lumped into a single "encoder
+is slower" result. All fixtures live under `proto/` and are built by
+helpers in `src/fixtures.ts`.
 
-`proto/small.proto` is a 3-scalar-field message that isolates per-call overhead (create/toBinary) without allocation noise.
+| Fixture | `.proto` | Shape | Typical encoded size | Notes |
+|---------|----------|-------|---------------------:|-------|
+| `SimpleMessage` | `small.proto` | 3 scalar fields | ~19 B | per-call overhead baseline |
+| `ExportTraceRequest` | `nested.proto` | OTel traces: 100 spans × 10 attrs, fixed64 timestamps, bytes IDs | ~35 KB | repro of [open-telemetry/opentelemetry-js#6221](https://github.com/open-telemetry/opentelemetry-js/issues/6221) |
+| `ExportMetricsRequest` | `otel-metrics.proto` | OTel metrics: 50 series with Gauge/Sum/Histogram mix, explicit bucket bounds | ~17 KB | exercises the `oneof data` dispatch + repeated doubles/uint64s |
+| `ExportLogsRequest` | `otel-logs.proto` | OTel logs: 100 LogRecords, severity, string body, trace/span IDs | ~21 KB | string-heavy with attribute maps |
+| `K8sPodList` | `k8s-pod.proto` | 20 Pods with labels/annotations, 2 containers each, ports + env + resource limits | ~29 KB | map-dominant config payload |
+| `GraphQLRequest` | `graphql.proto` | Long query string + JSON-encoded variables map | ~0.6 KB | mixes a large string with `map<string,bytes>` |
+| `GraphQLResponse` | `graphql.proto` | JSON-encoded `data` + structured errors | ~1.4 KB | bytes + repeated messages with string paths |
+| `RpcRequest` | `rpc-simple.proto` | Routing fields + header map + 256-byte payload | ~0.5 KB | baseline RPC envelope |
+| `RpcResponse` | `rpc-simple.proto` | Status + header map + 512-byte payload | ~0.6 KB | baseline RPC response |
+| `StressMessage` | `stress.proto` | Depth-8 self-nested + 200-wide int32/string/attr arrays + 4KB blob + every scalar type | ~13 KB | synthetic — surfaces per-scalar-type regressions |
+
+### Design notes
+
+- **Map-heavy vs. list-heavy.** Kubernetes payloads stress `map<string,string>`
+  encode paths; OTel payloads stress repeated nested messages. Both show up in
+  production consumers and the encoder walks differ.
+- **Deep nesting.** The stress fixture recurses through `StressMessage.child`
+  eight levels deep. The encoder pays a length-prefix per level (fork buffer +
+  measure + prefix), so depth is a distinct failure mode from total size.
+- **All scalar types exactly once.** `StressMessage` declares each proto3
+  scalar in a fixed slot so a regression specific to `sfixed64` or `sint32`
+  varint zig-zag is visible in this fixture but not in realistic ones.
+- **GraphQL/RPC payloads use `bytes` for opaque data** rather than structured
+  sub-messages because real clients carry JSON-encoded variables and
+  opaque RPC payloads as bytes on the wire; the benchmark reflects that.
+
+### Future work
+
+- `bench-matrix` currently measures `toBinary` + `fromBinary` on pre-built
+  messages. A follow-up pass should add `create + toBinary` (full roundtrip)
+  and `fromJsonString + toBinary` paths across the matrix to catch
+  regressions in the JSON-input code paths that the existing
+  `bench-fromJson-path` only exercises on the OTLP traces fixture.
+- GraphQL variables are currently modelled as `map<string,bytes>` with JSON
+  blobs per value. A richer fixture using a `google.protobuf.Struct`-like
+  shape would exercise the same code paths the `@bufbuild/protobuf/wkt`
+  `Value` type uses in real services.
 
 ## Current results
 

@@ -1,0 +1,68 @@
+// Copyright 2021-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+package bench.v1;
+
+// Synthetic stress payload. Exists to exercise encoder edge cases that
+// realistic fixtures don't always hit in the same message:
+//   - deep recursive nesting via `child`
+//   - wide repeated of scalars (int32) and strings
+//   - map-ish attribute list via repeated StressKeyValue
+//   - a large opaque string (`blob`) and bytes (`blob_bytes`)
+//   - every scalar type exactly once so we can attribute per-type cost
+//
+// Intentionally NOT representative of any production schema. Useful to
+// detect type-specific regressions (e.g. a change that makes sfixed64 10x
+// slower would show up here but not on OTLP-only benchmarks).
+
+message StressKeyValue {
+  string key = 1;
+  string value = 2;
+}
+
+message StressMessage {
+  // Recursive nesting — fixture builder caps the depth. The encoder
+  // length-prefix walk pays O(depth) per iteration so deep nesting is
+  // an interesting failure mode.
+  StressMessage child = 1;
+
+  // Wide repeated — scalar + message arrays. Numbers > 100 items are
+  // where packed-encoding path becomes dominant.
+  repeated int32 ids = 2;
+  repeated string tags = 3;
+  repeated StressKeyValue attrs = 4;
+
+  // Large contiguous strings/bytes — exercise TextEncoder + raw copy.
+  string blob = 5;
+  bytes blob_bytes = 20;
+
+  // Every proto3 scalar exactly once. Field numbers spaced to keep
+  // varint tag widths consistent (single-byte tags for the common
+  // hot-path fields 1-15, multi-byte for 16+).
+  int32 i32 = 10;
+  int64 i64 = 11;
+  uint32 u32 = 12;
+  uint64 u64 = 13;
+  sint32 s32 = 14;
+  sint64 s64 = 15;
+  bool b = 16;
+  float f32 = 17;
+  double f64 = 18;
+  string str = 19;
+  fixed32 fx32 = 21;
+  fixed64 fx64 = 22;
+  sfixed32 sfx32 = 23;
+  sfixed64 sfx64 = 24;
+}

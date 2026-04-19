@@ -10,6 +10,7 @@
     "bench:fromJson-path": "tsx src/bench-fromJson-path.ts",
     "bench:fromBinary": "tsx src/bench-fromBinary.ts",
     "bench:comparison": "tsx src/bench-comparison-protobufjs.ts",
+    "bench:matrix": "tsx src/bench-matrix.ts",
     "bench:memory": "node --expose-gc --import tsx src/bench-memory.ts",
     "build": "../node_modules/typescript/bin/tsc --noEmit",
     "generate": "buf generate && npm run generate:protobufjs",

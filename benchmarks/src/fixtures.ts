@@ -25,6 +25,65 @@ import {
   ResourceSchema,
   InstrumentationScopeSchema,
 } from "./gen/nested_pb.js";
+import {
+  ExportMetricsRequestSchema,
+  type ExportMetricsRequest,
+  GaugeSchema,
+  HistogramDataPointSchema,
+  HistogramSchema,
+  MetricAnyValueSchema,
+  MetricInstrumentationScopeSchema,
+  MetricKeyValueSchema,
+  MetricResourceSchema,
+  MetricSchema,
+  NumberDataPointSchema,
+  ResourceMetricsSchema,
+  ScopeMetricsSchema,
+  SumSchema,
+} from "./gen/otel-metrics_pb.js";
+import {
+  ExportLogsRequestSchema,
+  type ExportLogsRequest,
+  LogAnyValueSchema,
+  LogInstrumentationScopeSchema,
+  LogKeyValueSchema,
+  LogRecordSchema,
+  LogResourceSchema,
+  ResourceLogsSchema,
+  ScopeLogsSchema,
+} from "./gen/otel-logs_pb.js";
+import {
+  K8sContainerSchema,
+  K8sContainerStatusSchema,
+  K8sEnvVarSchema,
+  K8sObjectMetaSchema,
+  K8sPodListSchema,
+  type K8sPodList,
+  K8sPodSchema,
+  K8sPodSpecSchema,
+  K8sPodStatusSchema,
+  K8sPortSchema,
+  K8sResourceRequirementsSchema,
+} from "./gen/k8s-pod_pb.js";
+import {
+  GraphQLErrorSchema,
+  GraphQLRequestSchema,
+  type GraphQLRequest,
+  GraphQLResponseSchema,
+  type GraphQLResponse,
+  GraphQLSourceLocationSchema,
+} from "./gen/graphql_pb.js";
+import {
+  RpcRequestSchema,
+  type RpcRequest,
+  RpcResponseSchema,
+  type RpcResponse,
+} from "./gen/rpc-simple_pb.js";
+import {
+  StressKeyValueSchema,
+  StressMessageSchema,
+  type StressMessage,
+} from "./gen/stress_pb.js";
 
 // Shared fixture construction. Kept deterministic so benchmark runs are
 // comparable: string lengths, attribute counts, and span counts are fixed.
@@ -236,4 +295,500 @@ export function buildExportTraceRequestJsonShape() {
       },
     ],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Matrix fixtures — each builder is parameterized by a scale `n` so that the
+// same shape can be measured at a few realistic cardinalities. Defaults are
+// chosen to match what we see in production traffic for each payload class.
+// ---------------------------------------------------------------------------
+
+// ---- OTel metrics ---------------------------------------------------------
+//
+// A batched metrics export: one Resource, one Scope, a mix of Gauge/Sum and
+// a Histogram with explicit bucket bounds. `n` controls the number of
+// distinct metric series; each series contributes a handful of data points.
+
+export const METRICS_SERIES_COUNT = 50;
+
+function buildMetricAttributes(metricIdx: number) {
+  const keys = [
+    "service.name",
+    "service.version",
+    "deployment.environment",
+    "host.name",
+    "cloud.region",
+  ];
+  return keys.map((key, i) =>
+    create(MetricKeyValueSchema, {
+      key,
+      value: create(MetricAnyValueSchema, {
+        value: { case: "stringValue", value: `v-${metricIdx}-${i}` },
+      }),
+    }),
+  );
+}
+
+function buildNumberDataPoint(idx: number, asDouble: boolean) {
+  return create(NumberDataPointSchema, {
+    attributes: buildMetricAttributes(idx),
+    startTimeUnixNano: 1_700_000_000_000_000_000n,
+    timeUnixNano: 1_700_000_000_000_001_000n + BigInt(idx) * 1000n,
+    value: asDouble
+      ? { case: "asDouble", value: 1.0 + idx * 0.125 }
+      : { case: "asInt", value: BigInt(idx * 17) },
+  });
+}
+
+function buildHistogramDataPoint(idx: number) {
+  const buckets = [0, 1, 5, 10, 50, 100];
+  return create(HistogramDataPointSchema, {
+    attributes: buildMetricAttributes(idx),
+    startTimeUnixNano: 1_700_000_000_000_000_000n,
+    timeUnixNano: 1_700_000_000_000_001_000n + BigInt(idx) * 1000n,
+    count: BigInt(100 + idx),
+    sum: 123.456 * idx,
+    bucketCounts: buckets.map((b) => BigInt(b + idx)),
+    explicitBounds: [0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
+    min: 0,
+    max: 9999.0,
+  });
+}
+
+export function buildExportMetricsRequest(
+  n: number = METRICS_SERIES_COUNT,
+): ExportMetricsRequest {
+  const metrics = [] as ReturnType<typeof create<typeof MetricSchema>>[];
+  for (let i = 0; i < n; i++) {
+    const kind = i % 3;
+    if (kind === 0) {
+      metrics.push(
+        create(MetricSchema, {
+          name: `metric.gauge.${i}`,
+          description: "gauge metric",
+          unit: "1",
+          data: {
+            case: "gauge",
+            value: create(GaugeSchema, {
+              dataPoints: [
+                buildNumberDataPoint(i, true),
+                buildNumberDataPoint(i + 1, true),
+              ],
+            }),
+          },
+        }),
+      );
+    } else if (kind === 1) {
+      metrics.push(
+        create(MetricSchema, {
+          name: `metric.sum.${i}`,
+          description: "monotonic counter",
+          unit: "By",
+          data: {
+            case: "sum",
+            value: create(SumSchema, {
+              aggregationTemporality: 2,
+              isMonotonic: true,
+              dataPoints: [
+                buildNumberDataPoint(i, false),
+                buildNumberDataPoint(i + 1, false),
+              ],
+            }),
+          },
+        }),
+      );
+    } else {
+      metrics.push(
+        create(MetricSchema, {
+          name: `metric.histogram.${i}`,
+          description: "request duration",
+          unit: "s",
+          data: {
+            case: "histogram",
+            value: create(HistogramSchema, {
+              aggregationTemporality: 2,
+              dataPoints: [buildHistogramDataPoint(i)],
+            }),
+          },
+        }),
+      );
+    }
+  }
+  const scope = create(MetricInstrumentationScopeSchema, {
+    name: "@example/metrics",
+    version: "1.0.0",
+  });
+  const resource = create(MetricResourceSchema, {
+    attributes: buildMetricAttributes(0),
+  });
+  return create(ExportMetricsRequestSchema, {
+    resourceMetrics: [
+      create(ResourceMetricsSchema, {
+        resource,
+        scopeMetrics: [create(ScopeMetricsSchema, { scope, metrics })],
+      }),
+    ],
+  });
+}
+
+// ---- OTel logs ------------------------------------------------------------
+//
+// Batched logs export with string body, severity, attributes, and trace
+// correlation IDs. `n` controls the number of log records in the batch.
+
+export const LOGS_RECORD_COUNT = 100;
+
+function buildLogAttributes(recordIdx: number) {
+  const keys = ["code.namespace", "code.function", "thread.id", "log.source"];
+  return keys.map((key, i) =>
+    create(LogKeyValueSchema, {
+      key,
+      value: create(LogAnyValueSchema, {
+        value: { case: "stringValue", value: `v-${recordIdx}-${i}` },
+      }),
+    }),
+  );
+}
+
+export function buildExportLogsRequest(
+  n: number = LOGS_RECORD_COUNT,
+): ExportLogsRequest {
+  const records = [] as ReturnType<typeof create<typeof LogRecordSchema>>[];
+  for (let i = 0; i < n; i++) {
+    records.push(
+      create(LogRecordSchema, {
+        timeUnixNano: 1_700_000_000_000_000_000n + BigInt(i) * 1000n,
+        observedTimeUnixNano: 1_700_000_000_000_001_000n + BigInt(i) * 1000n,
+        severityNumber: 9 + (i % 4),
+        severityText: ["INFO", "WARN", "ERROR", "DEBUG"][i % 4],
+        body: create(LogAnyValueSchema, {
+          value: {
+            case: "stringValue",
+            value: `log message #${i}: operation completed in ${i % 100}ms`,
+          },
+        }),
+        attributes: buildLogAttributes(i),
+        droppedAttributesCount: 0,
+        flags: i & 0xff,
+        traceId: bytes(i, 16),
+        spanId: bytes(i + 1, 8),
+      }),
+    );
+  }
+  const scope = create(LogInstrumentationScopeSchema, {
+    name: "@example/logger",
+    version: "1.0.0",
+  });
+  const resource = create(LogResourceSchema, {
+    attributes: buildLogAttributes(0),
+  });
+  return create(ExportLogsRequestSchema, {
+    resourceLogs: [
+      create(ResourceLogsSchema, {
+        resource,
+        scopeLogs: [
+          create(ScopeLogsSchema, {
+            scope,
+            logRecords: records,
+            schemaUrl: "",
+          }),
+        ],
+        schemaUrl: "",
+      }),
+    ],
+  });
+}
+
+// ---- K8s Pod list ---------------------------------------------------------
+//
+// Representative payload for a kubelet → apiserver listing call. Maps
+// (labels, annotations, limits, requests) dominate; each pod has 2
+// containers with env vars, ports, resource requirements, and a few
+// container statuses.
+
+export const K8S_POD_COUNT = 20;
+
+function buildK8sContainer(podIdx: number, containerIdx: number) {
+  return create(K8sContainerSchema, {
+    name: `container-${containerIdx}`,
+    image: `ghcr.io/example/app:v1.${podIdx}.${containerIdx}`,
+    command: ["/bin/app", "--config=/etc/app/config.yaml"],
+    args: ["--log-level=info", `--instance=pod-${podIdx}`],
+    env: [
+      create(K8sEnvVarSchema, { name: "NODE_ENV", value: "production" }),
+      create(K8sEnvVarSchema, { name: "PORT", value: "8080" }),
+      create(K8sEnvVarSchema, {
+        name: "POD_NAME",
+        value: `example-pod-${podIdx}`,
+      }),
+      create(K8sEnvVarSchema, { name: "POD_NAMESPACE", value: "default" }),
+    ],
+    ports: [
+      create(K8sPortSchema, {
+        name: "http",
+        containerPort: 8080,
+        protocol: "TCP",
+      }),
+      create(K8sPortSchema, {
+        name: "metrics",
+        containerPort: 9090,
+        protocol: "TCP",
+      }),
+    ],
+    resources: create(K8sResourceRequirementsSchema, {
+      limits: { cpu: "1000m", memory: "512Mi" },
+      requests: { cpu: "100m", memory: "128Mi" },
+    }),
+    imagePullPolicy: "IfNotPresent",
+  });
+}
+
+function buildK8sPod(i: number) {
+  const meta = create(K8sObjectMetaSchema, {
+    name: `example-pod-${i}`,
+    namespace: "default",
+    uid: `uid-${i.toString().padStart(8, "0")}`,
+    resourceVersion: `${100000 + i}`,
+    generation: BigInt(1),
+    labels: {
+      app: "example",
+      component: "api",
+      "app.kubernetes.io/name": "example",
+      "app.kubernetes.io/instance": `instance-${i}`,
+      tier: "backend",
+    },
+    annotations: {
+      "prometheus.io/scrape": "true",
+      "prometheus.io/port": "9090",
+      "kubectl.kubernetes.io/last-applied-configuration": "{}",
+    },
+    creationTimestampUnixNano: 1_700_000_000_000_000_000n + BigInt(i) * 1000n,
+  });
+  const spec = create(K8sPodSpecSchema, {
+    containers: [buildK8sContainer(i, 0), buildK8sContainer(i, 1)],
+    restartPolicy: "Always",
+    nodeName: `node-${i % 5}.cluster.local`,
+    serviceAccountName: "default",
+    terminationGracePeriodSeconds: BigInt(30),
+  });
+  const status = create(K8sPodStatusSchema, {
+    phase: "Running",
+    podIp: `10.0.${(i >> 8) & 0xff}.${i & 0xff}`,
+    hostIp: `10.1.0.${i % 255}`,
+    startTimeUnixNano: 1_700_000_000_000_000_000n + BigInt(i) * 1000n,
+    containerStatuses: [
+      create(K8sContainerStatusSchema, {
+        name: "container-0",
+        ready: true,
+        restartCount: 0,
+        image: `ghcr.io/example/app:v1.${i}.0`,
+        imageId: `sha256:${"a".repeat(64)}`,
+        containerId: `containerd://${"b".repeat(64)}`,
+        started: true,
+      }),
+      create(K8sContainerStatusSchema, {
+        name: "container-1",
+        ready: true,
+        restartCount: 0,
+        image: `ghcr.io/example/app:v1.${i}.1`,
+        imageId: `sha256:${"c".repeat(64)}`,
+        containerId: `containerd://${"d".repeat(64)}`,
+        started: true,
+      }),
+    ],
+  });
+  return create(K8sPodSchema, { metadata: meta, spec, status });
+}
+
+export function buildK8sPodList(n: number = K8S_POD_COUNT): K8sPodList {
+  const items = [] as ReturnType<typeof buildK8sPod>[];
+  for (let i = 0; i < n; i++) {
+    items.push(buildK8sPod(i));
+  }
+  return create(K8sPodListSchema, { items });
+}
+
+// ---- GraphQL --------------------------------------------------------------
+//
+// A medium-size GraphQL request/response pair: long query string, several
+// variables (JSON-encoded bytes), small response payload. Mirrors a typical
+// authenticated GraphQL API call.
+
+const GRAPHQL_QUERY = `
+  query GetUser($id: ID!, $includePosts: Boolean!, $postLimit: Int!) {
+    user(id: $id) {
+      id
+      email
+      displayName
+      avatarUrl
+      createdAt
+      lastSeenAt
+      posts(limit: $postLimit) @include(if: $includePosts) {
+        id
+        title
+        body
+        createdAt
+        tags
+        author { id displayName }
+      }
+      followers(first: 10) {
+        edges { node { id displayName } }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+`.trim();
+
+export function buildGraphQLRequest(): GraphQLRequest {
+  const encoder = new TextEncoder();
+  return create(GraphQLRequestSchema, {
+    query: GRAPHQL_QUERY,
+    operationName: "GetUser",
+    variables: {
+      id: encoder.encode('"user-42"'),
+      includePosts: encoder.encode("true"),
+      postLimit: encoder.encode("25"),
+    },
+    extensions: {
+      traceId: "00000000000000000000000000000000",
+      "x-client-version": "web/1.2.3",
+    },
+  });
+}
+
+export function buildGraphQLResponse(): GraphQLResponse {
+  const encoder = new TextEncoder();
+  // Smallish JSON response body — 2 KB-ish.
+  const data = encoder.encode(
+    JSON.stringify({
+      user: {
+        id: "user-42",
+        email: "alice@example.com",
+        displayName: "Alice",
+        avatarUrl: "https://cdn.example.com/avatars/42.png",
+        createdAt: "2024-01-15T10:00:00Z",
+        lastSeenAt: "2026-04-19T09:30:00Z",
+        posts: Array.from({ length: 5 }, (_, i) => ({
+          id: `post-${i}`,
+          title: `Example post ${i}`,
+          body: `Lorem ipsum dolor sit amet, consectetur ${i}`,
+          createdAt: "2025-01-01T00:00:00Z",
+          tags: ["news", "update"],
+          author: { id: "user-42", displayName: "Alice" },
+        })),
+      },
+    }),
+  );
+  return create(GraphQLResponseSchema, {
+    data,
+    errors: [
+      create(GraphQLErrorSchema, {
+        message: "deprecated field 'lastSeenAt' will be removed in v2",
+        locations: [
+          create(GraphQLSourceLocationSchema, { line: 7, column: 7 }),
+        ],
+        path: ["user", "lastSeenAt"],
+        extensions: {
+          code: encoder.encode('"DEPRECATED_FIELD"'),
+        },
+      }),
+    ],
+    extensions: {
+      traceId: encoder.encode('"00000000000000000000000000000000"'),
+    },
+  });
+}
+
+// ---- RPC simple -----------------------------------------------------------
+//
+// Baseline lightweight RPC envelope. Small headers map, modest payload,
+// routing fields. This is the shape of a typical gRPC unary call; useful as
+// a lower bound on per-call overhead.
+
+export function buildRpcRequest(): RpcRequest {
+  return create(RpcRequestSchema, {
+    service: "example.api.v1.UserService",
+    method: "GetUser",
+    headers: {
+      "x-request-id": "req-00000000-0000-0000-0000-000000000000",
+      authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "content-type": "application/grpc",
+      "grpc-accept-encoding": "identity,gzip",
+    },
+    payload: new Uint8Array(256).fill(0xab),
+    requestId: 0x0123456789abcdefn,
+    deadlineMs: BigInt(5_000),
+  });
+}
+
+export function buildRpcResponse(): RpcResponse {
+  return create(RpcResponseSchema, {
+    requestId: 0x0123456789abcdefn,
+    statusCode: 0,
+    headers: {
+      "content-type": "application/grpc",
+      "grpc-status": "0",
+      "x-response-time-ms": "12",
+    },
+    payload: new Uint8Array(512).fill(0xcd),
+    errorMessage: "",
+  });
+}
+
+// ---- Stress ---------------------------------------------------------------
+//
+// Synthetic payload with deep nesting, wide repeated fields, every scalar
+// type exercised once, and a large opaque blob. Used to surface
+// type-specific encoder regressions.
+
+export const STRESS_DEPTH = 8;
+export const STRESS_ARRAY_WIDTH = 200;
+export const STRESS_BLOB_SIZE = 4096;
+
+export function buildStressMessage(
+  depth: number = STRESS_DEPTH,
+  width: number = STRESS_ARRAY_WIDTH,
+  blobSize: number = STRESS_BLOB_SIZE,
+): StressMessage {
+  const ids = new Array<number>(width);
+  const tags = new Array<string>(width);
+  const attrs = [] as ReturnType<typeof create<typeof StressKeyValueSchema>>[];
+  for (let i = 0; i < width; i++) {
+    ids[i] = i;
+    tags[i] = `tag-${i}`;
+    attrs.push(create(StressKeyValueSchema, { key: `k${i}`, value: `v${i}` }));
+  }
+  const blob = "x".repeat(blobSize);
+  const blobBytes = new Uint8Array(blobSize).fill(0x42);
+
+  // Build from the leaf up so we don't recurse through `create()` closures.
+  let current = create(StressMessageSchema, {
+    ids,
+    tags,
+    attrs,
+    blob,
+    blobBytes,
+    i32: -1,
+    i64: -1n,
+    u32: 0xffffffff >>> 0,
+    u64: 0xffffffffffffffffn,
+    s32: -2,
+    s64: -2n,
+    b: true,
+    f32: 3.14,
+    f64: Math.E,
+    str: "stress",
+    fx32: 0xdeadbeef >>> 0,
+    fx64: 0xcafebabedeadbeefn,
+    sfx32: -3,
+    sfx64: -3n,
+  });
+  for (let i = 1; i < depth; i++) {
+    current = create(StressMessageSchema, {
+      child: current,
+      // Leave all other fields at defaults at intermediate levels to keep
+      // the message size growth bounded by depth rather than exploding.
+    });
+  }
+  return current;
 }

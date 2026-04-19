@@ -1,0 +1,57 @@
+// Copyright 2021-2026 Buf Technologies, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+package bench.v1;
+
+// GraphQL request/response envelope wrapped in protobuf. This is the shape
+// of a GraphQL-over-gRPC gateway: `query` + `operation_name` + variables
+// (stored as JSON-encoded bytes so the schema can carry arbitrary value
+// types without leaking the GraphQL scalar system into protobuf).
+//
+// Benchmark value: large string payloads (query text), map<string,bytes>
+// (variables), and a nested error array with paths (repeated string).
+
+message GraphQLSourceLocation {
+  uint32 line = 1;
+  uint32 column = 2;
+}
+
+message GraphQLError {
+  string message = 1;
+  repeated GraphQLSourceLocation locations = 2;
+  // GraphQL errors carry a JSON `path` that alternates string keys and
+  // int indices. We flatten to repeated string here (numeric indices are
+  // stringified) because protobuf doesn't have a heterogeneous list type
+  // and this matches what a typed client would serialize over the wire.
+  repeated string path = 3;
+  map<string, bytes> extensions = 4;
+}
+
+message GraphQLRequest {
+  string query = 1;
+  string operation_name = 2;
+  // Variables are JSON-encoded per key so that numbers, strings, nulls,
+  // and nested objects all fit without inventing a sum type. This
+  // matches the pattern used by apollo-rs and graphql-go gateways.
+  map<string, bytes> variables = 3;
+  map<string, string> extensions = 4;
+}
+
+message GraphQLResponse {
+  // `data` is the top-level GraphQL `data` field, JSON-encoded.
+  bytes data = 1;
+  repeated GraphQLError errors = 2;
+  map<string, bytes> extensions = 3;
+}
