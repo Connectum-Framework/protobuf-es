@@ -72,6 +72,13 @@ import { getTextEncoding } from "./wire/text-encoding.js";
 
 const supportCache = new WeakMap<DescMessage, boolean>();
 
+// `0n` requires target >= ES2020, but this package is compiled for ES2017.
+// Materialize the bigint zero once at module load so closures can compare
+// against it without the BigInt() call on the hot path. Marked PURE so
+// unused-path eliminators (esbuild, Rollup, Terser) can drop this module
+// when toBinaryFast is never referenced.
+const BIGINT_ZERO = /*@__PURE__*/ BigInt(0);
+
 /**
  * Walk the descriptor (including transitive message fields) and return
  * true iff every field in the subtree uses an MVP-supported shape. The
@@ -331,7 +338,8 @@ function isFieldSet(field: DescField, value: unknown): boolean {
       ) {
         // bigint zero, numeric zero, "0" string all represent unset.
         // Compare via coercion so 0n / 0 / "0" all return false.
-        return value !== 0 && value !== 0n && value !== "0";
+        // Literal `0n` requires ES2020; see BIGINT_ZERO above.
+        return value !== 0 && value !== BIGINT_ZERO && value !== "0";
       }
       return (value as number) !== 0;
     }

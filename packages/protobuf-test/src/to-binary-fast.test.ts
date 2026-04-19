@@ -47,7 +47,8 @@ void suite("toBinaryFast", () => {
         strInt32Field: { a: 1, b: -2, c: 0x7fff_ffff },
         strInt64Field: {
           a: protoInt64.parse(1),
-          b: protoInt64.parse(-9007199254740993n),
+          // Literal `<digits>n` requires ES2020; this package is compiled for ES2017.
+          b: protoInt64.parse(BigInt("-9007199254740993")),
         },
         strBoolField: { true_key: true, false_key: false },
         strBytesField: {
