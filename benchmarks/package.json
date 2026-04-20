@@ -14,6 +14,8 @@
     "bench:matrix:ci": "bash scripts/run-matrix-ci.sh bench-results.json",
     "bench:matrix:compare": "tsx scripts/compare-results.ts",
     "bench:memory": "node --expose-gc --import tsx src/bench-memory.ts",
+    "bench:streaming": "tsx src/bench-streaming.ts",
+    "bench:heap-prof": "bash scripts/run-heap-prof.sh",
     "bench:report": "tsx src/report.ts",
     "build": "../node_modules/typescript/bin/tsc --noEmit",
     "generate": "buf generate && npm run generate:protobufjs",
