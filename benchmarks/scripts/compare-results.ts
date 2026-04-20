@@ -67,8 +67,10 @@ function parseArgs(): Options {
     if (arg.startsWith("--baseline=")) opts.baseline = arg.slice(11);
     else if (arg.startsWith("--current=")) opts.current = arg.slice(10);
     else if (arg.startsWith("--output=")) opts.output = arg.slice(9);
-    else if (arg.startsWith("--threshold-ops=")) opts.thresholdOps = Number(arg.slice(16));
-    else if (arg.startsWith("--threshold-mem=")) opts.thresholdMem = Number(arg.slice(16));
+    else if (arg.startsWith("--threshold-ops="))
+      opts.thresholdOps = Number(arg.slice(16));
+    else if (arg.startsWith("--threshold-mem="))
+      opts.thresholdMem = Number(arg.slice(16));
     else if (arg === "--no-baseline") opts.noBaseline = true;
     else if (arg === "--help" || arg === "-h") {
       printUsage();
@@ -135,6 +137,12 @@ interface CompareRow {
   status: "ok" | "improved" | "regression" | "new";
 }
 
+// Flat thresholds (ops %, memory %). Variance on CI runners is now
+// controlled upstream in run-matrix-ci.sh via `taskset -c 0` CPU pinning
+// + median-of-5 runs; see analysis/benchmark-variance-root-cause.md for
+// the measurement that showed 76% -> 7% spread after pinning. Keeping
+// thresholds flat lets real algorithmic regressions (>5% ops, >10% mem)
+// surface without bucket-dependent policy the reviewer has to interpret.
 function compare(
   baseline: BenchPayload | null,
   current: BenchPayload,
@@ -224,7 +232,8 @@ function renderMarkdown(
   out.push(`## ${summaryTitle}`);
   out.push("");
   out.push(
-    `Thresholds: throughput regression \`>${opts.thresholdOps}%\`, memory regression \`>${opts.thresholdMem}%\`. Current run on \`${opts.current.platform}\`, Node \`${opts.current.node}\`, captured \`${opts.current.timestamp}\`.`,
+    `Thresholds: throughput regression \`>${opts.thresholdOps}%\`, memory regression \`>${opts.thresholdMem}%\`. ` +
+      `Runner pinned to CPU 0 via taskset. Current run on \`${opts.current.platform}\`, Node \`${opts.current.node}\`, captured \`${opts.current.timestamp}\`.`,
   );
   if (opts.baseline) {
     out.push(

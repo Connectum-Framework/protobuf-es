@@ -1,0 +1,127 @@
+{
+  "node": "v25.8.1",
+  "platform": "linux/x64",
+  "timestamp": "2026-04-20T14:03:09.404Z",
+  "results": [
+    {
+      "name": "SimpleMessage :: toBinary (pre-built, 19 B)",
+      "opsPerSec": 720572.6467325875,
+      "rme": 4.586523984485405,
+      "samples": 584677
+    },
+    {
+      "name": "ExportTraceRequest (100 spans) :: toBinary (pre-built, 32926 B)",
+      "opsPerSec": 942.728512279284,
+      "rme": 5.20843148311372,
+      "samples": 905
+    },
+    {
+      "name": "ExportMetricsRequest (50 series) :: toBinary (pre-built, 17696 B)",
+      "opsPerSec": 1690.2655826286807,
+      "rme": 1.2287491782968762,
+      "samples": 1663
+    },
+    {
+      "name": "ExportLogsRequest (100 records) :: toBinary (pre-built, 21319 B)",
+      "opsPerSec": 1769.099144200511,
+      "rme": 0.7934304535540673,
+      "samples": 1741
+    },
+    {
+      "name": "K8sPodList (20 pods) :: toBinary (pre-built, 28900 B)",
+      "opsPerSec": 1761.1402301413486,
+      "rme": 3.1648732429277913,
+      "samples": 1662
+    },
+    {
+      "name": "GraphQLRequest :: toBinary (pre-built, 624 B)",
+      "opsPerSec": 145455.54923227328,
+      "rme": 1.939681764666347,
+      "samples": 136959
+    },
+    {
+      "name": "GraphQLResponse :: toBinary (pre-built, 1366 B)",
+      "opsPerSec": 207739.65617123304,
+      "rme": 7.000451540273928,
+      "samples": 166418
+    },
+    {
+      "name": "RpcRequest :: toBinary (pre-built, 501 B)",
+      "opsPerSec": 250839.90037953644,
+      "rme": 2.3455244711213687,
+      "samples": 233170
+    },
+    {
+      "name": "RpcResponse :: toBinary (pre-built, 602 B)",
+      "opsPerSec": 393930.1377351528,
+      "rme": 3.2692980105549525,
+      "samples": 344566
+    },
+    {
+      "name": "StressMessage (depth=8, width=200) :: toBinary (pre-built, 12868 B)",
+      "opsPerSec": 6329.2079657042395,
+      "rme": 1.2442163953887613,
+      "samples": 6167
+    },
+    {
+      "name": "SimpleMessage :: fromBinary (19 B)",
+      "opsPerSec": 884713.3936586891,
+      "rme": 0.16714493485586263,
+      "samples": 859830
+    },
+    {
+      "name": "ExportTraceRequest (100 spans) :: fromBinary (32926 B)",
+      "opsPerSec": 545.5350076541376,
+      "rme": 1.202558278680317,
+      "samples": 538
+    },
+    {
+      "name": "ExportMetricsRequest (50 series) :: fromBinary (17696 B)",
+      "opsPerSec": 888.3503061250073,
+      "rme": 1.2969980310240832,
+      "samples": 864
+    },
+    {
+      "name": "ExportLogsRequest (100 records) :: fromBinary (21319 B)",
+      "opsPerSec": 882.9676497121711,
+      "rme": 1.2257471502567474,
+      "samples": 862
+    },
+    {
+      "name": "K8sPodList (20 pods) :: fromBinary (28900 B)",
+      "opsPerSec": 1007.335044928595,
+      "rme": 0.8788453963613843,
+      "samples": 993
+    },
+    {
+      "name": "GraphQLRequest :: fromBinary (624 B)",
+      "opsPerSec": 221605.2437830516,
+      "rme": 0.3787980957928544,
+      "samples": 211417
+    },
+    {
+      "name": "GraphQLResponse :: fromBinary (1366 B)",
+      "opsPerSec": 205348.95710481095,
+      "rme": 1.6772806334555086,
+      "samples": 190009
+    },
+    {
+      "name": "RpcRequest :: fromBinary (501 B)",
+      "opsPerSec": 208822.5527629229,
+      "rme": 0.34718286675914534,
+      "samples": 204013
+    },
+    {
+      "name": "RpcResponse :: fromBinary (602 B)",
+      "opsPerSec": 295797.20225724357,
+      "rme": 2.029660371713425,
+      "samples": 281191
+    },
+    {
+      "name": "StressMessage (depth=8, width=200) :: fromBinary (12868 B)",
+      "opsPerSec": 2874.297533564573,
+      "rme": 1.0153087164867896,
+      "samples": 2797
+    }
+  ]
+}
