@@ -54,6 +54,11 @@ npm run bench:heap-prof -w @bufbuild/protobuf-benchmarks
   ```bash
   taskset -c 0 npm run bench -w @bufbuild/protobuf-benchmarks
   ```
+- CI (`.github/workflows/benchmark.yaml`) already runs pinned via
+  `scripts/run-matrix-ci.sh`, which wraps each of the 5 bench-matrix
+  passes with `taskset -c 0`, then feeds the per-fixture median through
+  `scripts/compare-results.ts` against the latest `bench-baseline-main`
+  artifact. Flat 5% throughput / 10% memory gates apply.
 
 ## Fixtures
 
