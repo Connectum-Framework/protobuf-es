@@ -67,8 +67,10 @@ function parseArgs(): Options {
     if (arg.startsWith("--baseline=")) opts.baseline = arg.slice(11);
     else if (arg.startsWith("--current=")) opts.current = arg.slice(10);
     else if (arg.startsWith("--output=")) opts.output = arg.slice(9);
-    else if (arg.startsWith("--threshold-ops=")) opts.thresholdOps = Number(arg.slice(16));
-    else if (arg.startsWith("--threshold-mem=")) opts.thresholdMem = Number(arg.slice(16));
+    else if (arg.startsWith("--threshold-ops="))
+      opts.thresholdOps = Number(arg.slice(16));
+    else if (arg.startsWith("--threshold-mem="))
+      opts.thresholdMem = Number(arg.slice(16));
     else if (arg === "--no-baseline") opts.noBaseline = true;
     else if (arg === "--help" || arg === "-h") {
       printUsage();
