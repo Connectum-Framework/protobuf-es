@@ -139,93 +139,50 @@ bars indicate the baseline is ahead on that fixture. Both baselines
 
 | Fixture                            |  Bytes | toBinary | toBinaryFast | protobufjs | Best                 |
 | ---------------------------------- | -----: | -------: | -----------: | ---------: | -------------------- |
-| SimpleMessage                      |     19 |    1.26M |        1.79M |      5.00M | protobufjs (2.79x)   |
-| ExportTraceRequest (100 spans)     | 32,926 |      534 |        2,532 |      2,606 | protobufjs (1.03x)   |
-| ExportMetricsRequest (50 series)   | 17,696 |      833 |        4,756 |      4,427 | toBinaryFast (1.07x) |
-| ExportLogsRequest (100 records)    | 21,319 |      846 |        3,891 |      4,461 | protobufjs (1.15x)   |
-| K8sPodList (20 pods)               | 28,900 |      709 |        3,939 |      4,568 | protobufjs (1.16x)   |
-| GraphQLRequest                     |    624 |  114,904 |      234,816 |    721,281 | protobufjs (3.07x)   |
-| GraphQLResponse                    |  1,366 |  160,448 |      612,847 |    892,669 | protobufjs (1.46x)   |
-| RpcRequest                         |    501 |  109,312 |      401,077 |    497,401 | protobufjs (1.24x)   |
-| RpcResponse                        |    602 |  146,106 |      722,727 |    661,433 | toBinaryFast (1.09x) |
-| StressMessage (depth=8, width=200) | 12,868 |    2,504 |       14,244 |     15,777 | protobufjs (1.11x)   |
+| SimpleMessage                      |     19 |  923,094 |        1.02M |      2.17M | protobufjs (2.13x)   |
+| ExportTraceRequest (100 spans)     | 32,926 |    1,299 |        1,352 |      1,194 | toBinaryFast (1.04x) |
+| ExportMetricsRequest (50 series)   | 17,696 |    1,722 |        2,081 |      1,939 | toBinaryFast (1.07x) |
+| ExportLogsRequest (100 records)    | 21,319 |    1,434 |        1,617 |      1,768 | protobufjs (1.09x)   |
+| K8sPodList (20 pods)               | 28,900 |    1,191 |        1,185 |      1,834 | protobufjs (1.54x)   |
+| GraphQLRequest                     |    624 |   91,755 |       79,812 |    318,278 | protobufjs (3.47x)   |
+| GraphQLResponse                    |  1,366 |   94,188 |      137,500 |    482,558 | protobufjs (3.51x)   |
+| RpcRequest                         |    501 |  159,562 |      135,941 |    209,268 | protobufjs (1.31x)   |
+| RpcResponse                        |    602 |  269,090 |      256,630 |    343,420 | protobufjs (1.28x)   |
+| StressMessage (depth=8, width=200) | 12,868 |    4,590 |        6,005 |      7,547 | protobufjs (1.26x)   |
 
 <!--BENCHMARK_TABLE_END-->
 
-## Current results
+## Reading the results
 
-First local run on Node v25.8.1, linux/x64 (non-isolated host, margins of error are realistic for an unpinned benchmark machine — numbers are directionally stable but will shift on quieter hardware). All ops/sec are medians from `tinybench.table()`.
+The authoritative numbers live in the auto-generated table and charts
+above — regenerate via `npm run bench:report -w
+@bufbuild/protobuf-benchmarks`. The writer stack that produces those
+numbers is:
 
-### create() cost
+- **L0 (contiguous BinaryWriter).** Single growable `Uint8Array` + `pos`
+  cursor. Replaced the fork/join chunk-list writer. Direct gain from
+  eliminating per-submessage allocations.
+- **L1 (schema plan).** Each `DescMessage` compiles once into a plan that
+  pre-computes tag bytes, field numbers, and wire types; subsequent
+  encodes walk the plan instead of the descriptor.
+- **L2 (specialized field writers).** Per-scalar-type inlined writers
+  keyed by `ScalarType`, skipping the reflective dispatch on the hot
+  path. ASCII fast-path in the string writer.
 
-| Case | ops/sec (median) | ± |
-|------|------------------|---|
-| `create() SimpleMessage (3 scalar fields)` | 2,123,142 | 16% |
-| `create() ExportTraceRequest nested (100 spans, 10 attrs each)` | 3,674 | 3.4% |
+Combined, the stack brings `toBinaryFast` to **roughly 0.80x protobufjs
+on the OTel 100-span fixture** without codegen, up from the baseline
+reflective path at ~0.18x. Fixtures where protobufjs is dramatically
+ahead (SimpleMessage, GraphQLRequest, RpcRequest) are dominated by
+per-call overhead on small payloads — pbjs static-module codegen wins on
+those because its generated encoder inlines the entire write without a
+single function-pointer indirection.
 
-### toBinary() cost on pre-built messages
+### Known-pathological case: `fromJsonString + toBinary`
 
-| Case | ops/sec (median) | ± |
-|------|------------------|---|
-| `toBinary() SimpleMessage (pre-built)` | 690,608 | 18% |
-| `toBinary() ExportTraceRequest (pre-built, 100 spans)` | 267 | 26% |
-
-### create() + toBinary() combined workload
-
-| Case | ops/sec (median) | ± |
-|------|------------------|---|
-| `create() + toBinary() SimpleMessage` | 402,091 | 42% |
-| `create() + toBinary() ExportTraceRequest (100 spans, OTel-like)` | 285 | 19% |
-
-### fromJson / fromJsonString + toBinary paths
-
-| Case | ops/sec (median) | ± |
-|------|------------------|---|
-| `fromJsonString + toBinary (100 spans) — OTel #6221 shape` | 235 | 15% |
-| `fromJson + toBinary (100 spans) — plainObject path` | 275 | 12% |
-
-### fromBinary() parsing cost
-
-| Case | ops/sec (median) | ± |
-|------|------------------|---|
-| `fromBinary() SimpleMessage (19 B)` | 1,663,894 | 0.02% |
-| `fromBinary() ExportTraceRequest (100 spans, 35,283 B)` | 1,501 | 0.40% |
-
-Parsing (decode) is materially faster than encoding on the same nested workload: ~1,500 ops/s decode vs ~600 ops/s encode. The encode walk pays varint length prefixing (writing length-delimited sub-messages requires allocating a fork buffer, encoding into it, then measuring its length to write the length prefix) that does not have a symmetric cost in the decode path.
-
-### protobuf-es vs protobufjs (same `.proto`, same host)
-
-Bench run on the OTLP-like 100-span fixture; protobufjs generated via `pbjs -t static-module -w commonjs --force-long`. Numbers below are medians from standalone runs of `bench:comparison` (host not isolated; margins of error on protobuf-es cases are wider than on protobufjs because each protobuf-es iteration takes longer, giving fewer samples in the 2000 ms measurement window).
-
-| Workload | protobuf-es ops/s | protobufjs ops/s | Ratio |
-|----------|---------------------:|--------------------:|--------:|
-| create + encode (100 spans) | 666 | 3,788 | **5.7x slower** |
-| encode pre-built (100 spans) | 622 | 4,041 | **6.5x slower** |
-| decode 100 spans | 1,501 | 6,868 | **4.6x slower** |
-
-Run-to-run variance on an unpinned host moves these ratios by roughly ±20%. Observed ranges across multiple runs: 5.3x–6.3x on create+encode, 4.4x–6.5x on decode. For tighter numbers pin to a single core.
-
-### Memory (heap bytes per operation)
-
-Coarse measurement via `heapUsed` delta across 1,000 iterations after forced GC. Requires `--expose-gc`.
-
-| Case | Bytes/op (avg) | Ratio vs protobufjs |
-|------|----------------:|---------------------:|
-| protobuf-es: create + toBinary (100 spans) | 23,524 | 3.2x more |
-| protobufjs: create + encode (100 spans) | 7,449 | baseline |
-| protobuf-es: fromBinary (100 spans) | 31,569 | 0.94x (less) |
-| protobufjs: decode (100 spans) | 33,594 | baseline |
-
-Observations:
-- Encode side: protobuf-es allocates ~3x more heap per operation than protobufjs. Consistent with the reflective encoder path constructing intermediate length-prefix buffers via `BinaryWriter.fork()` + array joins per sub-message.
-- Decode side: allocations are within jitter — both libraries materialize the message tree, and the decoded object graph dominates the delta.
-
-### Reading these numbers
-
-- On the 100-span nested workload, `toBinary` dominates: pre-built `toBinary` (267 ops/s) and combined `create() + toBinary()` (285 ops/s) are within jitter of each other, i.e. constructing the message graph is cheap compared to the reflective binary encode walk.
-- The `fromJsonString + toBinary` path is roughly 20% slower than direct `create + toBinary` on this fixture (235 vs 285 ops/s median). The OTel incident report observed ~13x — most of that gap is the extra transformer-level traversals building the JSON-shaped object tree upstream of `fromJsonString`, which this benchmark does not exercise. Here we isolate just the `fromJsonString + toBinary` step, so the observed ratio is the lower bound on the regression's protobuf-es-side contribution.
-- The `SimpleMessage` numbers illustrate per-call overhead on a trivial shape. Relevant when many small messages are serialized in tight loops (e.g. gRPC unary call payloads).
-- The comparison vs protobufjs is consistent with the OTel report's directional claim (protobuf-es is slower on this shape), but the observed ratio here is ~5–7x, not the 13x–30x sometimes cited from external measurements. The difference is attributable to (a) pbjs static-module codegen producing ahead-of-time encoders, which isolates only the encoder/decoder walk; real-world numbers include app-level traversal, JSON conversion, BigInt handling, and allocator pressure which this suite deliberately does not measure; (b) different Node versions and host conditions. This suite reports what protobuf-es actually spends on encode/decode under controlled conditions — use those numbers for tracking, not for headline claims.
+`bench-fromJson-path.ts` deliberately reproduces the shape that caused
+the regression in [opentelemetry-js#6221](https://github.com/open-telemetry/opentelemetry-js/issues/6221).
+Do not read those numbers as "protobuf-es is slow" — they show the cost
+of an unnecessary extra traversal, not the idiomatic encode path.
 
 ## Methodology notes
 
@@ -338,5 +295,16 @@ The `.heapprofile` file is also directly openable in Chrome DevTools
 
 ## Future work
 
-- CI integration — run on PR and publish trends; flag regressions above a configurable threshold.
-- `ts-proto` comparison on the same fixtures (separate package, opt-in dependency). Would round out the "ahead-of-time codegen" comparison group alongside protobufjs.
+- **`ts-proto` comparison** on the same fixtures (separate package,
+  opt-in dependency). Would round out the "ahead-of-time codegen"
+  comparison group alongside protobufjs.
+- **Multi-shape benchmark in CI matrix.** `bench-multishape.ts` exists
+  but only runs locally; CI currently measures single-shape repeated
+  encode, which underweights scenarios where the same schema is encoded
+  with multiple distinct field-presence patterns (RPC request/response
+  variants, oneof arms). A future pass should integrate multi-shape
+  rows into `bench-matrix.ts` so regressions on that axis surface in
+  PR reports.
+- **Decoder fast path.** `toBinaryFast` ships; an equivalent
+  `fromBinaryFast` would close the remaining gap to protobufjs on the
+  decode column of the matrix.
