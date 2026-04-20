@@ -60,11 +60,7 @@
 // already-graduated variants keep serving their shapes.
 
 import { ScalarType } from "../descriptors.js";
-import type {
-  DescField,
-  DescMessage,
-  DescOneof,
-} from "../descriptors.js";
+import type { DescField, DescMessage, DescOneof } from "../descriptors.js";
 
 // -----------------------------------------------------------------------------
 // Tunables
@@ -81,7 +77,7 @@ export const L3_WARMUP: number = (() => {
   const g = globalThis as {
     process?: { env?: Record<string, string | undefined> };
   };
-  const env = g.process && g.process.env ? g.process.env : undefined;
+  const env = g.process?.env;
   const raw = env ? env.PROTOBUF_ES_L3_WARMUP : undefined;
   const parsed = raw !== undefined ? Number.parseInt(raw, 10) : Number.NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
@@ -99,10 +95,8 @@ export const L3_VARIANT_CAP = 4;
  */
 export const L3_MAX_FIELDS = 64;
 
-// Explicit zero-bigint constant (ES2017 compile target disallows `0n`).
-// biome-ignore lint/style/useNamingConvention: module constant
+// Explicit bigint constants (ES2017 compile target disallows `0n` / `1n`).
 const BIGINT_ZERO = /*@__PURE__*/ BigInt(0);
-// biome-ignore lint/style/useNamingConvention: module constant
 const BIGINT_ONE = /*@__PURE__*/ BigInt(1);
 
 // Feature flag for Mode B (CSP-unsafe codegen executor).
@@ -531,7 +525,6 @@ export function compileVariantPlan(
   const F = steps.map((s) => s.field);
   const N = steps.map((s) => s.localName);
 
-  // biome-ignore lint/security/noGlobalEval: Mode B opt-in, source fully template-generated
   const estimateFactory = new Function("F", "N", "ER", "EM", estimateSrc) as (
     F: DescField[],
     N: string[],
@@ -545,7 +538,6 @@ export function compileVariantPlan(
     helpers.estimateMap,
   );
 
-  // biome-ignore lint/security/noGlobalEval: Mode B opt-in, source fully template-generated
   const writeFactory = new Function("F", "N", "WR", "WM", writeSrc) as (
     F: DescField[],
     N: string[],

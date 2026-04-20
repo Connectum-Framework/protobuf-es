@@ -961,11 +961,7 @@ const adaptiveHelpers: VariantHelpers = {
   estimateRegular: (field, value, sizes) =>
     estimateRegularFieldSize(field, value, sizes),
   estimateMap: (field, obj, sizes) =>
-    estimateMapFieldSize(
-      field as DescField & { fieldKind: "map" },
-      obj,
-      sizes,
-    ),
+    estimateMapFieldSize(field as DescField & { fieldKind: "map" }, obj, sizes),
   writeRegular: (cursor, field, value, sizes) =>
     writeRegularField(cursor as Cursor, field, value, sizes),
   writeMap: (cursor, field, obj, sizes) =>
@@ -982,8 +978,7 @@ function adaptiveDefault(): boolean {
   const g = globalThis as {
     process?: { env?: Record<string, string | undefined> };
   };
-  const env = g.process && g.process.env ? g.process.env : undefined;
-  return env !== undefined && env.PROTOBUF_ES_L3 === "1";
+  return g.process?.env?.PROTOBUF_ES_L3 === "1";
 }
 
 /**
