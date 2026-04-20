@@ -28,222 +28,222 @@
   <line class="grid" x1="90" x2="870" y1="85" y2="85" />
   <text x="84" y="89" text-anchor="end">10M</text>
   <line class="axis" x1="90" y1="405" x2="870" y2="405" />
-  <rect x="99" y="140.1868889202334" width="18" height="264.8131110797666" fill="#8b8b8b">
-    <title>toBinary: 923,094 ops/sec (SimpleMessage)</title>
+  <rect x="99" y="132.7278292828804" width="18" height="272.2721707171196" fill="#e55137">
+    <title>upstream-protobuf-es: 1,273,806 ops/sec (SimpleMessage)</title>
   </rect>
-  <g transform="translate(108, 137.1868889202334) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">923K</text>
+  <g transform="translate(108, 129.7278292828804) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">1.27M</text>
   </g>
-  <rect x="119" y="137.95799511877863" width="18" height="267.0420048812214" fill="#ffa600">
-    <title>toBinaryFast: 1,016,337 ops/sec (SimpleMessage)</title>
+  <rect x="119" y="135.04372802562415" width="18" height="269.95627197437585" fill="#347fc4">
+    <title>toBinary: 1,152,604 ops/sec (SimpleMessage)</title>
   </rect>
-  <g transform="translate(128, 134.95799511877863) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.02M</text>
+  <g transform="translate(128, 132.04372802562415) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">1.15M</text>
   </g>
-  <rect x="139" y="120.40439621579566" width="18" height="284.59560378420434" fill="#347fc4">
-    <title>protobufjs: 2,168,541 ops/sec (SimpleMessage)</title>
+  <rect x="139" y="106.03454739751578" width="18" height="298.9654526024842" fill="#6a8e7f">
+    <title>protobufjs: 4,032,759 ops/sec (SimpleMessage)</title>
   </rect>
-  <g transform="translate(148, 117.40439621579566) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">2.17M</text>
+  <g transform="translate(148, 103.03454739751578) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">4.03M</text>
   </g>
   <g transform="translate(129, 417) rotate(35)">
     <text text-anchor="start">SimpleMessage</text>
   </g>
-  <rect x="177" y="292.28182879870883" width="18" height="112.71817120129117" fill="#8b8b8b">
-    <title>toBinary: 1,299 ops/sec (ExportTraceRequest (100 spans))</title>
+  <rect x="177" y="313.69903776409865" width="18" height="91.30096223590135" fill="#e55137">
+    <title>upstream-protobuf-es: 515 ops/sec (ExportTraceRequest (100 spans))</title>
   </rect>
-  <g transform="translate(186, 289.28182879870883) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.30K</text>
+  <g transform="translate(186, 310.69903776409865) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">515</text>
   </g>
-  <rect x="197" y="291.3533567997968" width="18" height="113.64664320020319" fill="#ffa600">
-    <title>toBinaryFast: 1,352 ops/sec (ExportTraceRequest (100 spans))</title>
+  <rect x="197" y="284.97307268661325" width="18" height="120.02692731338675" fill="#347fc4">
+    <title>toBinary: 1,780 ops/sec (ExportTraceRequest (100 spans))</title>
   </rect>
-  <g transform="translate(206, 288.3533567997968) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.35K</text>
+  <g transform="translate(206, 281.97307268661325) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">1.78K</text>
   </g>
-  <rect x="217" y="294.22065473501846" width="18" height="110.77934526498154" fill="#347fc4">
-    <title>protobufjs: 1,194 ops/sec (ExportTraceRequest (100 spans))</title>
+  <rect x="217" y="278.3972251709373" width="18" height="126.6027748290627" fill="#6a8e7f">
+    <title>protobufjs: 2,365 ops/sec (ExportTraceRequest (100 spans))</title>
   </rect>
-  <g transform="translate(226, 291.22065473501846) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.19K</text>
+  <g transform="translate(226, 275.3972251709373) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">2.36K</text>
   </g>
   <g transform="translate(207, 417) rotate(35)">
     <text text-anchor="start">ExportTraceRequest (100 spans)</text>
   </g>
-  <rect x="255" y="285.7425587615778" width="18" height="119.25744123842219" fill="#8b8b8b">
-    <title>toBinary: 1,722 ops/sec (ExportMetricsRequest (50 series))</title>
+  <rect x="255" y="302.62652535436496" width="18" height="102.37347464563504" fill="#e55137">
+    <title>upstream-protobuf-es: 831 ops/sec (ExportMetricsRequest (50 series))</title>
   </rect>
-  <g transform="translate(264, 282.7425587615778) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.72K</text>
+  <g transform="translate(264, 299.62652535436496) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">831</text>
   </g>
-  <rect x="275" y="281.3563475916723" width="18" height="123.64365240832768" fill="#ffa600">
-    <title>toBinaryFast: 2,081 ops/sec (ExportMetricsRequest (50 series))</title>
+  <rect x="275" y="272.68386467738515" width="18" height="132.31613532261485" fill="#347fc4">
+    <title>toBinary: 3,026 ops/sec (ExportMetricsRequest (50 series))</title>
   </rect>
-  <g transform="translate(284, 278.3563475916723) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">2.08K</text>
+  <g transform="translate(284, 269.68386467738515) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">3.03K</text>
   </g>
-  <rect x="295" y="282.9974826569468" width="18" height="122.00251734305323" fill="#347fc4">
-    <title>protobufjs: 1,939 ops/sec (ExportMetricsRequest (50 series))</title>
+  <rect x="295" y="267.39551522835166" width="18" height="137.60448477164834" fill="#6a8e7f">
+    <title>protobufjs: 3,803 ops/sec (ExportMetricsRequest (50 series))</title>
   </rect>
-  <g transform="translate(304, 279.9974826569468) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.94K</text>
+  <g transform="translate(304, 264.39551522835166) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">3.80K</text>
   </g>
   <g transform="translate(285, 417) rotate(35)">
     <text text-anchor="start">ExportMetricsRequest (50 series)</text>
   </g>
-  <rect x="333" y="289.9760635995999" width="18" height="115.02393640040009" fill="#8b8b8b">
-    <title>toBinary: 1,434 ops/sec (ExportLogsRequest (100 records))</title>
+  <rect x="333" y="309.6787256319959" width="18" height="95.32127436800408" fill="#e55137">
+    <title>upstream-protobuf-es: 613 ops/sec (ExportLogsRequest (100 records))</title>
   </rect>
-  <g transform="translate(342, 286.9760635995999) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.43K</text>
+  <g transform="translate(342, 306.6787256319959) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">613</text>
   </g>
-  <rect x="353" y="287.20874888440005" width="18" height="117.79125111559995" fill="#ffa600">
-    <title>toBinaryFast: 1,617 ops/sec (ExportLogsRequest (100 records))</title>
+  <rect x="353" y="276.9431698064336" width="18" height="128.05683019356638" fill="#347fc4">
+    <title>toBinary: 2,518 ops/sec (ExportLogsRequest (100 records))</title>
   </rect>
-  <g transform="translate(362, 284.20874888440005) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.62K</text>
+  <g transform="translate(362, 273.9431698064336) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">2.52K</text>
   </g>
-  <rect x="373" y="285.1348733084524" width="18" height="119.86512669154757" fill="#347fc4">
-    <title>protobufjs: 1,768 ops/sec (ExportLogsRequest (100 records))</title>
+  <rect x="373" y="267.3294080295626" width="18" height="137.67059197043739" fill="#6a8e7f">
+    <title>protobufjs: 3,813 ops/sec (ExportLogsRequest (100 records))</title>
   </rect>
-  <g transform="translate(382, 282.1348733084524) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.77K</text>
+  <g transform="translate(382, 264.3294080295626) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">3.81K</text>
   </g>
   <g transform="translate(363, 417) rotate(35)">
     <text text-anchor="start">ExportLogsRequest (100 records)</text>
   </g>
-  <rect x="411" y="294.28275802209737" width="18" height="110.71724197790263" fill="#8b8b8b">
-    <title>toBinary: 1,191 ops/sec (K8sPodList (20 pods))</title>
+  <rect x="411" y="311.99310820694416" width="18" height="93.00689179305584" fill="#e55137">
+    <title>upstream-protobuf-es: 554 ops/sec (K8sPodList (20 pods))</title>
   </rect>
-  <g transform="translate(420, 291.28275802209737) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.19K</text>
+  <g transform="translate(420, 308.99310820694416) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">554</text>
   </g>
-  <rect x="431" y="294.40736515228093" width="18" height="110.59263484771907" fill="#ffa600">
-    <title>toBinaryFast: 1,185 ops/sec (K8sPodList (20 pods))</title>
+  <rect x="431" y="272.4028706957554" width="18" height="132.59712930424462" fill="#347fc4">
+    <title>toBinary: 3,063 ops/sec (K8sPodList (20 pods))</title>
   </rect>
-  <g transform="translate(440, 291.40736515228093) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.18K</text>
+  <g transform="translate(440, 269.4028706957554) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">3.06K</text>
   </g>
-  <rect x="451" y="284.29144683462994" width="18" height="120.70855316537006" fill="#347fc4">
-    <title>protobufjs: 1,834 ops/sec (K8sPodList (20 pods))</title>
+  <rect x="451" y="266.9708956546706" width="18" height="138.02910434532942" fill="#6a8e7f">
+    <title>protobufjs: 3,873 ops/sec (K8sPodList (20 pods))</title>
   </rect>
-  <g transform="translate(460, 281.29144683462994) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">1.83K</text>
+  <g transform="translate(460, 263.9708956546706) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">3.87K</text>
   </g>
   <g transform="translate(441, 417) rotate(35)">
     <text text-anchor="start">K8sPodList (20 pods)</text>
   </g>
-  <rect x="489" y="193.65984145245835" width="18" height="211.34015854754165" fill="#8b8b8b">
-    <title>toBinary: 91,755 ops/sec (GraphQLRequest)</title>
+  <rect x="489" y="193.9155459341659" width="18" height="211.0844540658341" fill="#e55137">
+    <title>upstream-protobuf-es: 90,747 ops/sec (GraphQLRequest)</title>
   </rect>
-  <g transform="translate(498, 190.65984145245835) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">91.8K</text>
+  <g transform="translate(498, 190.9155459341659) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">90.7K</text>
   </g>
-  <rect x="509" y="196.88980258784315" width="18" height="208.11019741215685" fill="#ffa600">
-    <title>toBinaryFast: 79,812 ops/sec (GraphQLRequest)</title>
+  <rect x="509" y="176.35485035066847" width="18" height="228.64514964933153" fill="#347fc4">
+    <title>toBinary: 193,685 ops/sec (GraphQLRequest)</title>
   </rect>
-  <g transform="translate(518, 193.88980258784315) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">79.8K</text>
+  <g transform="translate(518, 173.35485035066847) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">194K</text>
   </g>
-  <rect x="529" y="164.85034765489374" width="18" height="240.14965234510626" fill="#347fc4">
-    <title>protobufjs: 318,278 ops/sec (GraphQLRequest)</title>
+  <rect x="529" y="149.1030559828775" width="18" height="255.8969440171225" fill="#6a8e7f">
+    <title>protobufjs: 628,156 ops/sec (GraphQLRequest)</title>
   </rect>
-  <g transform="translate(538, 161.85034765489374) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">318K</text>
+  <g transform="translate(538, 146.1030559828775) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">628K</text>
   </g>
   <g transform="translate(519, 417) rotate(35)">
     <text text-anchor="start">GraphQLRequest</text>
   </g>
-  <rect x="567" y="193.05354412968822" width="18" height="211.94645587031178" fill="#8b8b8b">
-    <title>toBinary: 94,188 ops/sec (GraphQLResponse)</title>
+  <rect x="567" y="191.71001868477265" width="18" height="213.28998131522735" fill="#e55137">
+    <title>upstream-protobuf-es: 99,813 ops/sec (GraphQLResponse)</title>
   </rect>
-  <g transform="translate(576, 190.05354412968822) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">94.2K</text>
+  <g transform="translate(576, 188.71001868477265) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">99.8K</text>
   </g>
-  <rect x="587" y="184.2905624855231" width="18" height="220.7094375144769" fill="#ffa600">
-    <title>toBinaryFast: 137,500 ops/sec (GraphQLResponse)</title>
+  <rect x="587" y="174.6405820776198" width="18" height="230.3594179223802" fill="#347fc4">
+    <title>toBinary: 208,564 ops/sec (GraphQLResponse)</title>
   </rect>
-  <g transform="translate(596, 181.2905624855231) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">137K</text>
+  <g transform="translate(596, 171.6405820776198) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">209K</text>
   </g>
-  <rect x="607" y="155.2106859342922" width="18" height="249.7893140657078" fill="#347fc4">
-    <title>protobufjs: 482,558 ops/sec (GraphQLResponse)</title>
+  <rect x="607" y="140.73462436842607" width="18" height="264.26537563157393" fill="#6a8e7f">
+    <title>protobufjs: 901,521 ops/sec (GraphQLResponse)</title>
   </rect>
-  <g transform="translate(616, 152.2106859342922) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">483K</text>
+  <g transform="translate(616, 137.73462436842607) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">902K</text>
   </g>
   <g transform="translate(597, 417) rotate(35)">
     <text text-anchor="start">GraphQLResponse</text>
   </g>
-  <rect x="645" y="180.84380015048538" width="18" height="224.15619984951462" fill="#8b8b8b">
-    <title>toBinary: 159,562 ops/sec (RpcRequest)</title>
+  <rect x="645" y="196.6090409600633" width="18" height="208.3909590399367" fill="#e55137">
+    <title>upstream-protobuf-es: 80,785 ops/sec (RpcRequest)</title>
   </rect>
-  <g transform="translate(654, 177.84380015048538) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">160K</text>
+  <g transform="translate(654, 193.6090409600633) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">80.8K</text>
   </g>
-  <rect x="665" y="184.5546172439934" width="18" height="220.4453827560066" fill="#ffa600">
-    <title>toBinaryFast: 135,941 ops/sec (RpcRequest)</title>
+  <rect x="665" y="163.50689223286267" width="18" height="241.49310776713733" fill="#347fc4">
+    <title>toBinary: 337,284 ops/sec (RpcRequest)</title>
   </rect>
-  <g transform="translate(674, 181.5546172439934) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">136K</text>
+  <g transform="translate(674, 160.50689223286267) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">337K</text>
   </g>
-  <rect x="685" y="174.56248905284895" width="18" height="230.43751094715105" fill="#347fc4">
-    <title>protobufjs: 209,268 ops/sec (RpcRequest)</title>
+  <rect x="685" y="155.58605172457376" width="18" height="249.41394827542624" fill="#6a8e7f">
+    <title>protobufjs: 474,801 ops/sec (RpcRequest)</title>
   </rect>
-  <g transform="translate(694, 171.56248905284895) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">209K</text>
+  <g transform="translate(694, 152.58605172457376) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">475K</text>
   </g>
   <g transform="translate(675, 417) rotate(35)">
     <text text-anchor="start">RpcRequest</text>
   </g>
-  <rect x="723" y="168.73879335424337" width="18" height="236.26120664575663" fill="#8b8b8b">
-    <title>toBinary: 269,090 ops/sec (RpcResponse)</title>
+  <rect x="723" y="183.9454806932504" width="18" height="221.0545193067496" fill="#e55137">
+    <title>upstream-protobuf-es: 139,564 ops/sec (RpcResponse)</title>
   </rect>
-  <g transform="translate(732, 165.73879335424337) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">269K</text>
+  <g transform="translate(732, 180.9454806932504) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">140K</text>
   </g>
-  <rect x="743" y="169.83693180892814" width="18" height="235.16306819107186" fill="#ffa600">
-    <title>toBinaryFast: 256,630 ops/sec (RpcResponse)</title>
+  <rect x="743" y="154.2353110531056" width="18" height="250.7646889468944" fill="#347fc4">
+    <title>toBinary: 503,313 ops/sec (RpcResponse)</title>
   </rect>
-  <g transform="translate(752, 166.83693180892814) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">257K</text>
+  <g transform="translate(752, 151.2353110531056) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">503K</text>
   </g>
-  <rect x="763" y="163.0893090471649" width="18" height="241.9106909528351" fill="#347fc4">
-    <title>protobufjs: 343,420 ops/sec (RpcResponse)</title>
+  <rect x="763" y="145.9607137877028" width="18" height="259.0392862122972" fill="#6a8e7f">
+    <title>protobufjs: 719,427 ops/sec (RpcResponse)</title>
   </rect>
-  <g transform="translate(772, 160.0893090471649) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">343K</text>
+  <g transform="translate(772, 142.9607137877028) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">719K</text>
   </g>
   <g transform="translate(753, 417) rotate(35)">
     <text text-anchor="start">RpcResponse</text>
   </g>
-  <rect x="801" y="263.0359729733266" width="18" height="141.96402702667342" fill="#8b8b8b">
-    <title>toBinary: 4,590 ops/sec (StressMessage (depth=8, width=200))</title>
+  <rect x="801" y="282.76797254335037" width="18" height="122.23202745664963" fill="#e55137">
+    <title>upstream-protobuf-es: 1,958 ops/sec (StressMessage (depth=8, width=200))</title>
   </rect>
-  <g transform="translate(810, 260.0359729733266) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">4.59K</text>
+  <g transform="translate(810, 279.76797254335037) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">1.96K</text>
   </g>
-  <rect x="821" y="256.8136385257428" width="18" height="148.18636147425718" fill="#ffa600">
-    <title>toBinaryFast: 6,005 ops/sec (StressMessage (depth=8, width=200))</title>
+  <rect x="821" y="245.07575019418942" width="18" height="159.92424980581058" fill="#347fc4">
+    <title>toBinary: 9,967 ops/sec (StressMessage (depth=8, width=200))</title>
   </rect>
-  <g transform="translate(830, 253.81363852574282) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">6.00K</text>
+  <g transform="translate(830, 242.07575019418942) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">9.97K</text>
   </g>
-  <rect x="841" y="251.51907119475126" width="18" height="153.48092880524874" fill="#347fc4">
-    <title>protobufjs: 7,547 ops/sec (StressMessage (depth=8, width=200))</title>
+  <rect x="841" y="236.88208214990095" width="18" height="168.11791785009905" fill="#6a8e7f">
+    <title>protobufjs: 14,197 ops/sec (StressMessage (depth=8, width=200))</title>
   </rect>
-  <g transform="translate(850, 248.51907119475126) rotate(-60)">
-    <text text-anchor="start" font-size="10" fill="#333">7.55K</text>
+  <g transform="translate(850, 233.88208214990095) rotate(-60)">
+    <text text-anchor="start" font-size="10" fill="#333">14.2K</text>
   </g>
   <g transform="translate(831, 417) rotate(35)">
     <text text-anchor="start">StressMessage (depth=8, width=200)</text>
   </g>
   <g transform="translate(0, 61)">
-    <rect x="90" y="0" width="14" height="10" fill="#8b8b8b" />
-    <text x="108" y="9">toBinary</text>
-    <rect x="180" y="0" width="14" height="10" fill="#ffa600" />
-    <text x="198" y="9">toBinaryFast</text>
-    <rect x="298" y="0" width="14" height="10" fill="#347fc4" />
-    <text x="316" y="9">protobufjs</text>
+    <rect x="90" y="0" width="14" height="10" fill="#e55137" />
+    <text x="108" y="9">upstream-protobuf-es</text>
+    <rect x="264" y="0" width="14" height="10" fill="#347fc4" />
+    <text x="282" y="9">toBinary</text>
+    <rect x="354" y="0" width="14" height="10" fill="#6a8e7f" />
+    <text x="372" y="9">protobufjs</text>
   </g>
 </svg>

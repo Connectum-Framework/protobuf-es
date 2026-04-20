@@ -42,7 +42,7 @@ npm run bench:heap-prof -w @bufbuild/protobuf-benchmarks
 | `bench-comparison-protobufjs.ts` | Cross-library comparison: protobuf-es vs `protobufjs` (pbjs static codegen) on the same `.proto` fixture. Covers full roundtrip, encode-only, decode-only |
 | `bench-matrix.ts` | `toBinary` + `fromBinary` across the full realistic-fixture matrix (OTel traces/metrics/logs, K8s Pod list, GraphQL request/response, RPC envelope, stress). Emits a JSON summary on stdout for CI diffing |
 | `bench-memory.ts` | Heap allocations per operation (`heapUsed` delta after forced GC) for both libraries. Requires `--expose-gc` |
-| `bench-streaming.ts` | gRPC-style streaming encode throughput via `sizeDelimitedEncode`. Three stream shapes (small/medium/large) × three encoders (`toBinary`, `toBinaryFast`, `protobufjs encodeDelimited`). Emits `bench-streaming-results.json` with ops/sec + MB/s |
+| `bench-streaming.ts` | gRPC-style streaming encode throughput via `sizeDelimitedEncode`. Three stream shapes (small/medium/large) × two encoders (`toBinary`, `protobufjs encodeDelimited`). Emits `bench-streaming-results.json` with ops/sec + MB/s |
 | `heap-prof-driver.ts` + `scripts/analyze-heap-prof.ts` | Per-call-site allocation attribution via V8's sampling heap profiler. Replaces the coarse `heapUsed` delta in `bench-memory.ts` with function/file-level bytes |
 
 ## Methodology
@@ -121,34 +121,68 @@ table below. See `src/report.ts` for the generator,
 for the per-fixture protobufjs adapters.
 
 The log-scale chart below shows absolute throughput per fixture across
-`toBinary`, `toBinaryFast`, and `protobufjs` (pbjs static-module codegen).
-Numeric labels above each bar carry the ops/sec figure so the legend
-cross-references the table without requiring a second lookup.
+three encoders:
+
+- **`upstream-protobuf-es`** — unmodified `@bufbuild/protobuf@latest`
+  published on npm, installed via the `upstream-protobuf-es` alias. This
+  is the pre-L0 baseline; the red column represents how original
+  protobuf-es performs.
+- **`toBinary` (fork)** — this fork's in-tree `toBinary`, which already
+  ships the L0 contiguous-writer optimisation (PR #8). Byte-identical
+  output with upstream; public API unchanged.
+- **`protobufjs`** — ahead-of-time codegen via pbjs static-module, included
+  as a cross-library reference.
+
+The experimental L1+L2 schema-plan encoder (`toBinaryFast`) is intentionally
+not shown here — it lives on branch
+`archive/l1-l2-schema-plans-experimental` for future iteration (see the
+"Current state" note below). Numeric labels above each bar carry the
+ops/sec figure so the legend cross-references the table without requiring
+a second lookup.
 
 ![chart](./chart.svg)
 
-The linear-scale delta chart shows `toBinaryFast`'s percentage speedup over
-each baseline per fixture — this is the view to read for "how much faster,
-in plain terms". Positive bars indicate `toBinaryFast` is faster; negative
-bars indicate the baseline is ahead on that fixture. Both baselines
-(`toBinary`, `protobufjs`) are drawn where available.
+The linear-scale delta chart shows the fork's `toBinary` percentage
+speedup over each baseline per fixture — this is the view to read for
+"how much faster, in plain terms". Positive bars indicate the fork's
+`toBinary` is faster; negative bars indicate the baseline is ahead on
+that fixture. "vs upstream" is the honest cumulative gain over original
+`@bufbuild/protobuf@latest`; "vs protobufjs" is the cross-library
+reference.
 
 ![chart-delta](./chart-delta.svg)
 
+### Current state
+
+Main ships `toBinary` only (L0 contiguous writer, PR #8). The
+experimental L1+L2 schema-plan work (`toBinaryFast`) was prototyped on
+branches `feat/l1-l2-schema-plans` and
+`feat/merge-l1-l2-into-tobinary` — merging it into the public `toBinary`
+broke three extension-related unit tests and six conformance cases (the
+plan walk does not cover extension encoding). That work is preserved on
+branch `archive/l1-l2-schema-plans-experimental` for future iteration
+and is intentionally absent from this chart and from the public API on
+main.
+
+The `toBinary` column here is this fork's L0-optimised writer, compared
+against upstream `@bufbuild/protobuf@latest` (the red column) which is
+the pre-L0 reflective baseline. That comparison is the honest measure
+of what main delivers today.
+
 <!--BENCHMARK_TABLE_START-->
 
-| Fixture                            |  Bytes | toBinary | toBinaryFast | protobufjs | Best                 |
-| ---------------------------------- | -----: | -------: | -----------: | ---------: | -------------------- |
-| SimpleMessage                      |     19 |  923,094 |        1.02M |      2.17M | protobufjs (2.13x)   |
-| ExportTraceRequest (100 spans)     | 32,926 |    1,299 |        1,352 |      1,194 | toBinaryFast (1.04x) |
-| ExportMetricsRequest (50 series)   | 17,696 |    1,722 |        2,081 |      1,939 | toBinaryFast (1.07x) |
-| ExportLogsRequest (100 records)    | 21,319 |    1,434 |        1,617 |      1,768 | protobufjs (1.09x)   |
-| K8sPodList (20 pods)               | 28,900 |    1,191 |        1,185 |      1,834 | protobufjs (1.54x)   |
-| GraphQLRequest                     |    624 |   91,755 |       79,812 |    318,278 | protobufjs (3.47x)   |
-| GraphQLResponse                    |  1,366 |   94,188 |      137,500 |    482,558 | protobufjs (3.51x)   |
-| RpcRequest                         |    501 |  159,562 |      135,941 |    209,268 | protobufjs (1.31x)   |
-| RpcResponse                        |    602 |  269,090 |      256,630 |    343,420 | protobufjs (1.28x)   |
-| StressMessage (depth=8, width=200) | 12,868 |    4,590 |        6,005 |      7,547 | protobufjs (1.26x)   |
+| Fixture                            |  Bytes | upstream | toBinary (fork) | protobufjs | Best               |
+| ---------------------------------- | -----: | -------: | --------------: | ---------: | ------------------ |
+| SimpleMessage                      |     19 |    1.27M |           1.15M |      4.03M | protobufjs (3.17x) |
+| ExportTraceRequest (100 spans)     | 32,926 |      515 |           1,780 |      2,365 | protobufjs (1.33x) |
+| ExportMetricsRequest (50 series)   | 17,696 |      831 |           3,026 |      3,803 | protobufjs (1.26x) |
+| ExportLogsRequest (100 records)    | 21,319 |      613 |           2,518 |      3,813 | protobufjs (1.51x) |
+| K8sPodList (20 pods)               | 28,900 |      554 |           3,063 |      3,873 | protobufjs (1.26x) |
+| GraphQLRequest                     |    624 |   90,747 |         193,685 |    628,156 | protobufjs (3.24x) |
+| GraphQLResponse                    |  1,366 |   99,813 |         208,564 |    901,521 | protobufjs (4.32x) |
+| RpcRequest                         |    501 |   80,785 |         337,284 |    474,801 | protobufjs (1.41x) |
+| RpcResponse                        |    602 |  139,564 |         503,313 |    719,427 | protobufjs (1.43x) |
+| StressMessage (depth=8, width=200) | 12,868 |    1,958 |           9,967 |     14,197 | protobufjs (1.42x) |
 
 <!--BENCHMARK_TABLE_END-->
 
@@ -214,10 +248,9 @@ Three stream shapes cover the realistic distribution:
 | medium | 10 × `ExportTraceRequest` (100 spans each, ~33 KB each) | OTel export: batched uploads |
 | large | 5 × `K8sPodList` (20 pods each, ~29 KB each) | kubelet list pagination |
 
-Three encoders are compared per shape:
+Two encoders are compared per shape:
 
-- `toBinary` — reflective encoder (baseline)
-- `toBinaryFast` — L0 contiguous writer + L1 tag caching + L2 field dispatch
+- `toBinary` — reflective encoder with L0 contiguous writer (shipped on main)
 - `protobufjs encodeDelimited` — ahead-of-time codegen (not available on the
   large stream; pbjs init-shape lives with the main report in `report-pbjs.ts`)
 
@@ -235,7 +268,7 @@ is responsible for those bytes.
 Run:
 
 ```bash
-# Default: OTel 100-span workload, 1000 iterations, toBinaryFast encoder
+# Default: OTel 100-span workload, 1000 iterations, toBinary encoder (L0)
 npm run bench:heap-prof -w @bufbuild/protobuf-benchmarks
 
 # Narrow to the protobuf encoder source tree (drops one-time schema
@@ -258,10 +291,13 @@ Pipeline:
    `(function, file, line)`, and prints a markdown table of the top-N
    allocation sites plus a per-file summary.
 
-Fixtures: `otel100` (default), `metrics50`, `k8s20`, `rpc`. Encoders:
-`toBinary`, `toBinaryFast`.
+Fixtures: `otel100` (default), `metrics50`, `k8s20`, `rpc`. Encoder:
+`toBinary` (the L0 contiguous writer shipped on main).
 
-Example output (`--focus-encoder`, OTel 100-span, `toBinaryFast`, 5000 iters):
+Example output (`--focus-encoder`, OTel 100-span, `toBinary`, 5000 iters —
+historical snapshot from the L1+L2 prototype branch; kept as a reference
+for how the per-call-site report reads. Current main produces a different
+profile dominated by the L0 reflective walk):
 
 ```
 ## Top 14 allocation sites (by self bytes)

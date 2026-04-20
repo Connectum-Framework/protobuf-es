@@ -26,7 +26,7 @@
 //   (or)
 //   npm run bench:memory  (package.json wires --expose-gc)
 
-import { create, toBinary, toBinaryFast, fromBinary } from "@bufbuild/protobuf";
+import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
 import { ExportTraceRequestSchema } from "./gen/nested_pb.js";
 import { SPAN_COUNT } from "./fixtures.js";
 
@@ -185,13 +185,6 @@ async function main() {
     measure(`protobuf-es: create + toBinary (${SPAN_COUNT} spans)`, () => {
       const msg = create(ExportTraceRequestSchema, initEs);
       toBinary(ExportTraceRequestSchema, msg);
-    }),
-  );
-
-  samples.push(
-    measure(`protobuf-es: create + toBinaryFast (${SPAN_COUNT} spans)`, () => {
-      const msg = create(ExportTraceRequestSchema, initEs);
-      toBinaryFast(ExportTraceRequestSchema, msg);
     }),
   );
 

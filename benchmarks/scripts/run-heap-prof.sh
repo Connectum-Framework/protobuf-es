@@ -22,7 +22,7 @@ set -euo pipefail
 # Positional args are passed through to the driver (e.g. --fixture=otel100).
 # Defaults match the README example: OTel 100-span workload, 1000 iterations.
 FIXTURE="${FIXTURE:-otel100}"
-ENCODER="${ENCODER:-toBinaryFast}"
+ENCODER="${ENCODER:-toBinary}"
 ITERATIONS="${ITERATIONS:-1000}"
 
 # Allow overriding from the CLI: `npm run bench:heap-prof -- --fixture=k8s20`

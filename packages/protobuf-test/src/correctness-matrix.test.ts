@@ -34,9 +34,10 @@
  *
  * Encoder registry:
  *   Add new encoders to the ENCODERS array below as they land on main.
- *   Currently only `toBinary` is available on main; toBinaryFast and
- *   schema-plan-specialized encoders will be added once those branches
- *   merge.
+ *   Currently only `toBinary` ships on main (L0 contiguous writer). The
+ *   experimental L1+L2 schema-plan encoder (`toBinaryFast`) lives on the
+ *   `archive/l1-l2-schema-plans-experimental` branch for future iteration
+ *   and is intentionally absent here.
  */
 
 import { suite, test } from "node:test";
@@ -87,8 +88,8 @@ interface Fixture<Desc extends DescMessage> {
 
 const ENCODERS: readonly EncoderEntry[] = [
   { name: "toBinary", encode: (schema, message) => toBinary(schema, message) },
-  // Future additions (guarded until they land on main):
-  //   { name: "toBinaryFast", encode: (schema, message) => toBinaryFast(schema, message) },
+  // Future additions (held on branch until they land on main):
+  //   { name: "toBinaryFast", encode: ... }       // archive/l1-l2-schema-plans-experimental
   //   { name: "toBinarySchemaPlan", encode: ... }
 ];
 
