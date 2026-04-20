@@ -63,9 +63,7 @@
       "reflect": ["./dist/cjs/reflect/index.d.ts"],
       "wkt": ["./dist/cjs/wkt/index.d.ts"],
       "wire": ["./dist/cjs/wire/index.d.ts"],
-      "wire/schema-plan-adaptive": [
-        "./dist/cjs/wire/schema-plan-adaptive.d.ts"
-      ]
+      "wire/schema-plan-adaptive": ["./dist/cjs/wire/schema-plan-adaptive.d.ts"]
     }
   },
   "devDependencies": {

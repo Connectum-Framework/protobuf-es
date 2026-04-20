@@ -30,10 +30,10 @@
 // and `scripts/compare-results.ts` can line-diff against `baselines/main.json`
 // without shape-specific tooling.
 
+import { create, toBinary, toBinaryFast } from "@bufbuild/protobuf";
 import { Bench } from "tinybench";
-import { toBinaryFast, create, toBinary } from "@bufbuild/protobuf";
+import { AnyValueSchema, KeyValueSchema, SpanSchema } from "./gen/nested_pb.js";
 import { SimpleMessageSchema } from "./gen/small_pb.js";
-import { SpanSchema, KeyValueSchema, AnyValueSchema } from "./gen/nested_pb.js";
 
 const ITERATIONS_WARMUP = 40; // well past L3_WARMUP=10 × 3 shapes
 

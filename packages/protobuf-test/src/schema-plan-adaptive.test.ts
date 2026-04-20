@@ -27,12 +27,7 @@
 
 import { suite, test } from "node:test";
 import * as assert from "node:assert";
-import {
-  create,
-  toBinary,
-  toBinaryFast,
-  protoInt64,
-} from "@bufbuild/protobuf";
+import { create, toBinary, toBinaryFast, protoInt64 } from "@bufbuild/protobuf";
 import {
   getOrCreateVariants,
   computeShapeHash,
