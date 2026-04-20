@@ -137,13 +137,17 @@ interface CompareRow {
   status: "ok" | "improved" | "regression" | "new";
 }
 
-// Variance-aware thresholds. Fixed 5%/10% thresholds produce false
-// positives on fast fixtures where host-level run-to-run variance
-// easily exceeds 50% (verified via 5 back-to-back runs on main:
-// SimpleMessage::toBinary spread 514K..1,017K ops/s, internal rme <0.2%).
+// Variance-aware thresholds. Fixed 5% threshold produces false
+// positives across the entire fixture range on GitHub-hosted runners:
+// - Fast (>100K ops/s): local 5-run spread 514K..1,017K (2.0x) on
+//   SimpleMessage::toBinary with internal rme <0.2% — pure host noise.
+// - Slow (<10K ops/s): PR #15 CI median-of-3 still drifted -5.8%..-8.5%
+//   on OTel/K8s/Stress fixtures vs its own baseline (identical code) —
+//   runner-level variance the median can't fully absorb.
+// Empirical thresholds below eliminate both classes of false positive
+// while keeping real algorithmic regressions (>10-15% delta) visible.
 function bucketedOpsThreshold(opsPerSec: number, userMin: number): number {
-  const bucketed =
-    opsPerSec > 100_000 ? 15 : opsPerSec > 10_000 ? 8 : 5;
+  const bucketed = opsPerSec > 100_000 ? 15 : 10;
   return Math.max(bucketed, userMin);
 }
 
@@ -244,7 +248,7 @@ function renderMarkdown(
   out.push(`## ${summaryTitle}`);
   out.push("");
   out.push(
-    `Variance-aware thresholds by ops/sec bucket: throughput \`>15%\` for >100K, \`>8%\` for >10K, \`>5%\` otherwise (memory \`>20%\` / \`>10%\`). Minimum overrides \`>${opts.thresholdOps}%\` / \`>${opts.thresholdMem}%\`. Current run on \`${opts.current.platform}\`, Node \`${opts.current.node}\`, captured \`${opts.current.timestamp}\`.`,
+    `Variance-aware thresholds: throughput \`>15%\` for >100K ops/s, \`>10%\` otherwise (memory \`>20%\` / \`>10%\`). Minimum overrides \`>${opts.thresholdOps}%\` / \`>${opts.thresholdMem}%\`. Current run on \`${opts.current.platform}\`, Node \`${opts.current.node}\`, captured \`${opts.current.timestamp}\`.`,
   );
   if (opts.baseline) {
     out.push(
