@@ -137,25 +137,12 @@ interface CompareRow {
   status: "ok" | "improved" | "regression" | "new";
 }
 
-// Variance-aware thresholds. Fixed 5% threshold produces false
-// positives across the entire fixture range on GitHub-hosted runners:
-// - Fast (>100K ops/s): local 5-run spread 514K..1,017K (2.0x) on
-//   SimpleMessage::toBinary with internal rme <0.2% — pure host noise.
-// - Slow (<10K ops/s): PR #15 CI median-of-3 still drifted -5.8%..-8.5%
-//   on OTel/K8s/Stress fixtures vs its own baseline (identical code) —
-//   runner-level variance the median can't fully absorb.
-// Empirical thresholds below eliminate both classes of false positive
-// while keeping real algorithmic regressions (>10-15% delta) visible.
-function bucketedOpsThreshold(opsPerSec: number, userMin: number): number {
-  const bucketed = opsPerSec > 100_000 ? 15 : 10;
-  return Math.max(bucketed, userMin);
-}
-
-function bucketedMemThreshold(opsPerSec: number, userMin: number): number {
-  const bucketed = opsPerSec > 100_000 ? 20 : 10;
-  return Math.max(bucketed, userMin);
-}
-
+// Flat thresholds (ops %, memory %). Variance on CI runners is now
+// controlled upstream in run-matrix-ci.sh via `taskset -c 0` CPU pinning
+// + median-of-5 runs; see analysis/benchmark-variance-root-cause.md for
+// the measurement that showed 76% -> 7% spread after pinning. Keeping
+// thresholds flat lets real algorithmic regressions (>5% ops, >10% mem)
+// surface without bucket-dependent policy the reviewer has to interpret.
 function compare(
   baseline: BenchPayload | null,
   current: BenchPayload,
@@ -183,17 +170,14 @@ function compare(
       memDelta = ((cur.bytesPerOp - base.bytesPerOp) / base.bytesPerOp) * 100;
     }
 
-    const opsGate = bucketedOpsThreshold(cur.opsPerSec, thresholdOps);
-    const memGate = bucketedMemThreshold(cur.opsPerSec, thresholdMem);
-
     let status: CompareRow["status"] = "ok";
     if (!base) {
       status = "new";
-    } else if (opsDelta !== null && opsDelta <= -opsGate) {
+    } else if (opsDelta !== null && opsDelta <= -thresholdOps) {
       status = "regression";
-    } else if (memDelta !== null && memDelta >= memGate) {
+    } else if (memDelta !== null && memDelta >= thresholdMem) {
       status = "regression";
-    } else if (opsDelta !== null && opsDelta >= opsGate) {
+    } else if (opsDelta !== null && opsDelta >= thresholdOps) {
       status = "improved";
     }
 
@@ -248,7 +232,8 @@ function renderMarkdown(
   out.push(`## ${summaryTitle}`);
   out.push("");
   out.push(
-    `Variance-aware thresholds: throughput \`>15%\` for >100K ops/s, \`>10%\` otherwise (memory \`>20%\` / \`>10%\`). Minimum overrides \`>${opts.thresholdOps}%\` / \`>${opts.thresholdMem}%\`. Current run on \`${opts.current.platform}\`, Node \`${opts.current.node}\`, captured \`${opts.current.timestamp}\`.`,
+    `Thresholds: throughput regression \`>${opts.thresholdOps}%\`, memory regression \`>${opts.thresholdMem}%\`. ` +
+      `Runner pinned to CPU 0 via taskset. Current run on \`${opts.current.platform}\`, Node \`${opts.current.node}\`, captured \`${opts.current.timestamp}\`.`,
   );
   if (opts.baseline) {
     out.push(

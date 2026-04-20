@@ -121,11 +121,15 @@ jobs:
             npx tsx scripts/compare-results.ts \
               --baseline=baseline-results.json \
               --current=bench-results.json \
-              --output=bench-report.md
+              --output=bench-report.md \
+              --threshold-ops=5 \
+              --threshold-mem=10
           else
             npx tsx scripts/compare-results.ts \
               --current=bench-results.json \
               --output=bench-report.md \
+              --threshold-ops=5 \
+              --threshold-mem=10 \
               --no-baseline
           fi
           if grep -q "REGRESSION" bench-report.md 2>/dev/null; then
