@@ -262,6 +262,47 @@ export class BinaryWriter {
   }
 
   /**
+   * Write a tag value as varint, skipping the `assertUInt32` validation that
+   * `tag()` / `uint32()` perform. Safe only for values produced by
+   * `((fieldNo << 3) | wireType) >>> 0` from a validated descriptor: the
+   * result is always a non-negative 32-bit integer by construction.
+   *
+   * Mirrors the L0 contiguous-buffer varint encoding used by `uint32()` but
+   * skips `assertUInt32`. Callers must guarantee `tag` is a non-negative
+   * 32-bit integer; violating this invariant produces undefined output.
+   *
+   * @private
+   */
+  tagUnchecked(tag: number): this {
+    this.ensureCapacity(5);
+    const buf = this.buf;
+    let p = this.pos;
+    if (tag < 0x80) {
+      buf[p++] = tag;
+    } else if (tag < 0x4000) {
+      buf[p++] = (tag & 0x7f) | 0x80;
+      buf[p++] = tag >>> 7;
+    } else if (tag < 0x200000) {
+      buf[p++] = (tag & 0x7f) | 0x80;
+      buf[p++] = ((tag >>> 7) & 0x7f) | 0x80;
+      buf[p++] = tag >>> 14;
+    } else if (tag < 0x10000000) {
+      buf[p++] = (tag & 0x7f) | 0x80;
+      buf[p++] = ((tag >>> 7) & 0x7f) | 0x80;
+      buf[p++] = ((tag >>> 14) & 0x7f) | 0x80;
+      buf[p++] = tag >>> 21;
+    } else {
+      buf[p++] = (tag & 0x7f) | 0x80;
+      buf[p++] = ((tag >>> 7) & 0x7f) | 0x80;
+      buf[p++] = ((tag >>> 14) & 0x7f) | 0x80;
+      buf[p++] = ((tag >>> 21) & 0x7f) | 0x80;
+      buf[p++] = tag >>> 28;
+    }
+    this.pos = p;
+    return this;
+  }
+
+  /**
    * Write a chunk of raw bytes.
    */
   raw(chunk: Uint8Array): this {
