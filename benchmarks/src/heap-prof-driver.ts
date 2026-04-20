@@ -32,7 +32,7 @@
 //
 // Or via the wrapper script: `npm run bench:heap-prof`.
 
-import { toBinary, toBinaryFast } from "@bufbuild/protobuf";
+import { toBinary, toBinary as toBinaryFast } from "@bufbuild/protobuf";
 
 import { ExportTraceRequestSchema } from "./gen/nested_pb.js";
 import { K8sPodListSchema } from "./gen/k8s-pod_pb.js";

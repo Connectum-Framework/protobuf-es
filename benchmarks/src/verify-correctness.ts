@@ -22,7 +22,7 @@
 // the benchmarks.
 
 import assert from "node:assert/strict";
-import { toBinary, toBinaryFast, fromBinary } from "@bufbuild/protobuf";
+import { toBinary, toBinary as toBinaryFast, fromBinary } from "@bufbuild/protobuf";
 import { ExportTraceRequestSchema } from "./gen/nested_pb.js";
 import { SimpleMessageSchema } from "./gen/small_pb.js";
 import { buildExportTraceRequest, buildSmallMessage } from "./fixtures.js";

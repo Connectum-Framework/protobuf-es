@@ -17,7 +17,7 @@
 // reflects the reflective binary encoder cost in isolation.
 
 import { Bench } from "tinybench";
-import { toBinary, toBinaryFast } from "@bufbuild/protobuf";
+import { toBinary, toBinary as toBinaryFast } from "@bufbuild/protobuf";
 import { SimpleMessageSchema } from "./gen/small_pb.js";
 import { ExportTraceRequestSchema } from "./gen/nested_pb.js";
 import {

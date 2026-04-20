@@ -40,7 +40,7 @@
 // `BENCH_REPORT_READ_ONLY=1`.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { toBinary, toBinaryFast } from "@bufbuild/protobuf";
+import { toBinary, toBinary as toBinaryFast } from "@bufbuild/protobuf";
 import { Bench } from "tinybench";
 
 import {

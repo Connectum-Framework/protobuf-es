@@ -18,7 +18,7 @@
 // of an OTLP trace export call made once per batch.
 
 import { Bench } from "tinybench";
-import { create, toBinary, toBinaryFast } from "@bufbuild/protobuf";
+import { create, toBinary, toBinary as toBinaryFast } from "@bufbuild/protobuf";
 import { SimpleMessageSchema } from "./gen/small_pb.js";
 import {
   AnyValueSchema,

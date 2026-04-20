@@ -26,7 +26,7 @@
 //   (or)
 //   npm run bench:memory  (package.json wires --expose-gc)
 
-import { create, toBinary, toBinaryFast, fromBinary } from "@bufbuild/protobuf";
+import { create, toBinary, toBinary as toBinaryFast, fromBinary } from "@bufbuild/protobuf";
 import { ExportTraceRequestSchema } from "./gen/nested_pb.js";
 import { SPAN_COUNT } from "./fixtures.js";
 
