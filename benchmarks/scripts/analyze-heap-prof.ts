@@ -20,12 +20,15 @@
 // so CI jobs can publish the attribution without a DevTools UI.
 //
 // Usage:
-//   tsx scripts/analyze-heap-prof.ts <path-to-.heapprofile> [--top=20] [--filter=<regex>]
+//   tsx scripts/analyze-heap-prof.ts <path-to-.heapprofile> [--top=20] [--filter=<substring>]
 //
-// `--filter` accepts a regex matched against `url|functionName`; defaults
-// to a filter that excludes Node.js internals so the output is scoped to
-// the encode call stack that interests us. Pass `--filter=.*` to
-// include everything (useful when debugging the filter itself).
+// `--filter` accepts a literal substring matched (case-sensitive) against
+// `url|functionName`. User input is escaped before being compiled to a
+// RegExp to avoid regex injection; the default filter built into this
+// script is a trusted regex that excludes Node.js internals so the output
+// is scoped to the encode call stack that interests us. Pass
+// `--filter=` (empty) to restore the default; pass any substring (e.g.
+// `--filter=to-binary`) to narrow further.
 //
 // `--focus-encoder` is a stronger filter that keeps only sites under the
 // protobuf encoder source trees (to-binary, to-binary-fast, binary-encoding).
@@ -53,11 +56,24 @@ const focusEncoder = process.argv.includes("--focus-encoder");
 const defaultFilter = focusEncoder
   ? "to-binary|binary-encoding|text-encoding|varint|size-delimited"
   : "^(?!node:internal|node:fs|\\(V8 API\\)|\\(root\\)).*";
-const filterRegex = new RegExp(parseArg("filter", defaultFilter));
+
+// Escape user-provided filter input before passing to RegExp so a CLI
+// argument cannot inject unintended regex syntax (e.g. catastrophic
+// backtracking or anchors that subvert the default behaviour). The
+// programmatically-built `defaultFilter` is trusted and used verbatim.
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const rawFilter = parseArg("filter", "");
+const filterRegex =
+  rawFilter === ""
+    ? new RegExp(defaultFilter)
+    : new RegExp(escapeRegex(rawFilter));
 
 if (!rawProfilePath) {
   console.error(
-    "usage: tsx scripts/analyze-heap-prof.ts <path-to-.heapprofile> [--top=20] [--filter=<regex>]",
+    "usage: tsx scripts/analyze-heap-prof.ts <path-to-.heapprofile> [--top=20] [--filter=<substring>]",
   );
   console.error(
     "  path may be a directory; in that case the newest .heapprofile inside is analyzed.",
@@ -163,10 +179,10 @@ function aggregate(root: SampleNode): Map<string, SiteTotal> {
   return byKey;
 }
 
-// Apply user-supplied filter against `url|functionName` so frames in
+// Apply the active filter against `url|functionName` so frames in
 // Node internals / V8 API don't crowd out the interesting encoder
-// frames. The default regex excludes internals; pass `--filter=.*` to
-// see everything.
+// frames. The default regex excludes internals; pass an empty
+// `--filter=` to restore the default, or a literal substring to narrow.
 function filterSites(sites: SiteTotal[]): SiteTotal[] {
   return sites.filter((s) => filterRegex.test(`${s.url}|${s.functionName}`));
 }
@@ -190,6 +206,19 @@ function formatBytes(n: number): string {
   return `${n}B`;
 }
 
+// Escape characters that have special meaning inside a markdown table
+// cell. Backslashes must be doubled first so later escape sequences
+// aren't themselves re-escaped. Pipes terminate table cells; newlines
+// break the row. Callers pass values derived from V8 call-frame
+// metadata, which can legitimately contain any of these.
+function escapeMd(s: string): string {
+  return s
+    .replaceAll("\\", "\\\\")
+    .replaceAll("|", "\\|")
+    .replaceAll("\r", " ")
+    .replaceAll("\n", " ");
+}
+
 function renderTable(sites: SiteTotal[], totalBytes: number): string {
   const header = [
     "| Rank | Site | Bytes | % total | Samples |",
@@ -200,7 +229,7 @@ function renderTable(sites: SiteTotal[], totalBytes: number): string {
       s.lineNumber >= 0 ? `:${s.lineNumber + 1}` : ""
     }`;
     const pct = totalBytes === 0 ? 0 : (s.selfBytes / totalBytes) * 100;
-    return `| ${i + 1} | ${loc.replace(/\|/g, "\\|")} | ${formatBytes(
+    return `| ${i + 1} | ${escapeMd(loc)} | ${formatBytes(
       s.selfBytes,
     )} | ${pct.toFixed(1)}% | ${s.samples} |`;
   });
@@ -248,7 +277,7 @@ function renderFileTable(files: FileTotal[], totalBytes: number): string {
   ];
   const rows = files.map((f, i) => {
     const pct = totalBytes === 0 ? 0 : (f.selfBytes / totalBytes) * 100;
-    return `| ${i + 1} | ${shortenUrl(f.url).replace(/\|/g, "\\|")} | ${formatBytes(
+    return `| ${i + 1} | ${escapeMd(shortenUrl(f.url))} | ${formatBytes(
       f.selfBytes,
     )} | ${pct.toFixed(1)}% | ${f.sites} | ${f.samples} |`;
   });
@@ -268,11 +297,13 @@ function main() {
   const top = filtered.slice(0, topN);
   const filteredTotal = filtered.reduce((acc, s) => acc + s.selfBytes, 0);
 
-  console.log(`# Heap profile analysis\n\nProfile: ${basename(profilePath)}  `);
   console.log(
-    `Dir: ${dirname(profilePath)}  \nTotal sampled bytes: ${formatBytes(
+    `# Heap profile analysis\n\nProfile: ${escapeMd(basename(profilePath))}  `,
+  );
+  console.log(
+    `Dir: ${escapeMd(dirname(profilePath))}  \nTotal sampled bytes: ${formatBytes(
       totalBytes,
-    )}  \nAfter filter (${filterRegex.source}): ${formatBytes(
+    )}  \nAfter filter (${escapeMd(filterRegex.source)}): ${formatBytes(
       filteredTotal,
     )} (${filtered.length} sites)\n`,
   );
