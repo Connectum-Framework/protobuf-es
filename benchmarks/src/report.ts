@@ -14,8 +14,8 @@
 
 // Benchmark report generator.
 //
-// Runs a multi-encoder matrix (toBinary, toBinaryFast, protobufjs) across
-// the fixture set exposed by bench-matrix.ts, then emits:
+// Runs a multi-encoder matrix (upstream, toBinary, toBinaryFast, protobufjs)
+// across the fixture set exposed by bench-matrix.ts, then emits:
 //
 //   1. bench-results.json — machine-readable raw data for CI diffing.
 //   2. chart.svg          — grouped-bar SVG chart (log ops/sec per fixture)
@@ -41,6 +41,13 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { toBinary, toBinaryFast } from "@bufbuild/protobuf";
+// `upstream-protobuf-es` is an npm alias for `@bufbuild/protobuf@latest`
+// installed as a regular devDependency. This gives us the unmodified
+// upstream encoder alongside the fork's in-tree copy in the same process,
+// so the report can measure the honest cumulative gain from the original
+// protobuf-es baseline (which predates the L0 contiguous-writer work in
+// PR #8) instead of only showing the incremental delta on top of it.
+import { toBinary as upstreamToBinary } from "upstream-protobuf-es";
 import { Bench } from "tinybench";
 
 import {
@@ -169,7 +176,18 @@ async function runReportBench(): Promise<BenchmarkResult[]> {
   // protobuf-es encoders. We never change the schema/message references
   // inside the benchmark function body — that would pull allocation cost
   // into the measurement. Everything is captured in the closure once.
+  //
+  // The `upstream` bar uses `@bufbuild/protobuf@latest` via the
+  // upstream-protobuf-es alias. The fork's generated schemas import
+  // from the fork's `@bufbuild/protobuf`, but the descriptor protocol is
+  // wire-compatible between the two v2 versions — upstream.toBinary
+  // accepts the same schema/message pair and produces identical bytes
+  // (verified via .tmp/verify-upstream.mjs). That lets a single schema
+  // drive bars from both libraries, no separate codegen needed.
   for (const p of prepared) {
+    bench.add(`${p.name} :: upstream`, () => {
+      upstreamToBinary(p.schema, p.msg);
+    });
     bench.add(`${p.name} :: toBinary`, () => {
       toBinary(p.schema, p.msg);
     });

@@ -137,18 +137,18 @@ bars indicate the baseline is ahead on that fixture. Both baselines
 
 <!--BENCHMARK_TABLE_START-->
 
-| Fixture                            |  Bytes | toBinary | toBinaryFast | protobufjs | Best                 |
-| ---------------------------------- | -----: | -------: | -----------: | ---------: | -------------------- |
-| SimpleMessage                      |     19 |    1.26M |        1.79M |      5.00M | protobufjs (2.79x)   |
-| ExportTraceRequest (100 spans)     | 32,926 |      534 |        2,532 |      2,606 | protobufjs (1.03x)   |
-| ExportMetricsRequest (50 series)   | 17,696 |      833 |        4,756 |      4,427 | toBinaryFast (1.07x) |
-| ExportLogsRequest (100 records)    | 21,319 |      846 |        3,891 |      4,461 | protobufjs (1.15x)   |
-| K8sPodList (20 pods)               | 28,900 |      709 |        3,939 |      4,568 | protobufjs (1.16x)   |
-| GraphQLRequest                     |    624 |  114,904 |      234,816 |    721,281 | protobufjs (3.07x)   |
-| GraphQLResponse                    |  1,366 |  160,448 |      612,847 |    892,669 | protobufjs (1.46x)   |
-| RpcRequest                         |    501 |  109,312 |      401,077 |    497,401 | protobufjs (1.24x)   |
-| RpcResponse                        |    602 |  146,106 |      722,727 |    661,433 | toBinaryFast (1.09x) |
-| StressMessage (depth=8, width=200) | 12,868 |    2,504 |       14,244 |     15,777 | protobufjs (1.11x)   |
+| Fixture                            |  Bytes | upstream | toBinary | toBinaryFast | protobufjs | Best                 |
+| ---------------------------------- | -----: | -------: | -------: | -----------: | ---------: | -------------------- |
+| SimpleMessage                      |     19 |  888,037 |  479,094 |        1.59M |      3.82M | protobufjs (2.40x)   |
+| ExportTraceRequest (100 spans)     | 32,926 |      445 |    1,633 |        2,094 |      2,262 | protobufjs (1.08x)   |
+| ExportMetricsRequest (50 series)   | 17,696 |      691 |    1,998 |        2,288 |      3,754 | protobufjs (1.64x)   |
+| ExportLogsRequest (100 records)    | 21,319 |      457 |    1,947 |        3,193 |      2,616 | toBinaryFast (1.22x) |
+| K8sPodList (20 pods)               | 28,900 |      468 |    2,147 |        2,718 |      3,523 | protobufjs (1.30x)   |
+| GraphQLRequest                     |    624 |   66,618 |  156,809 |      147,308 |    580,282 | protobufjs (3.70x)   |
+| GraphQLResponse                    |  1,366 |  112,854 |  242,204 |      484,025 |    833,636 | protobufjs (1.72x)   |
+| RpcRequest                         |    501 |   96,810 |  343,488 |      351,521 |    463,924 | protobufjs (1.32x)   |
+| RpcResponse                        |    602 |  144,089 |  507,833 |      574,312 |    679,754 | protobufjs (1.18x)   |
+| StressMessage (depth=8, width=200) | 12,868 |    2,083 |   10,017 |       11,321 |     16,655 | protobufjs (1.47x)   |
 
 <!--BENCHMARK_TABLE_END-->
 
