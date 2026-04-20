@@ -137,6 +137,21 @@ interface CompareRow {
   status: "ok" | "improved" | "regression" | "new";
 }
 
+// Variance-aware thresholds. Fixed 5%/10% thresholds produce false
+// positives on fast fixtures where host-level run-to-run variance
+// easily exceeds 50% (verified via 5 back-to-back runs on main:
+// SimpleMessage::toBinary spread 514K..1,017K ops/s, internal rme <0.2%).
+function bucketedOpsThreshold(opsPerSec: number, userMin: number): number {
+  const bucketed =
+    opsPerSec > 100_000 ? 15 : opsPerSec > 10_000 ? 8 : 5;
+  return Math.max(bucketed, userMin);
+}
+
+function bucketedMemThreshold(opsPerSec: number, userMin: number): number {
+  const bucketed = opsPerSec > 100_000 ? 20 : 10;
+  return Math.max(bucketed, userMin);
+}
+
 function compare(
   baseline: BenchPayload | null,
   current: BenchPayload,
@@ -164,14 +179,17 @@ function compare(
       memDelta = ((cur.bytesPerOp - base.bytesPerOp) / base.bytesPerOp) * 100;
     }
 
+    const opsGate = bucketedOpsThreshold(cur.opsPerSec, thresholdOps);
+    const memGate = bucketedMemThreshold(cur.opsPerSec, thresholdMem);
+
     let status: CompareRow["status"] = "ok";
     if (!base) {
       status = "new";
-    } else if (opsDelta !== null && opsDelta <= -thresholdOps) {
+    } else if (opsDelta !== null && opsDelta <= -opsGate) {
       status = "regression";
-    } else if (memDelta !== null && memDelta >= thresholdMem) {
+    } else if (memDelta !== null && memDelta >= memGate) {
       status = "regression";
-    } else if (opsDelta !== null && opsDelta >= thresholdOps) {
+    } else if (opsDelta !== null && opsDelta >= opsGate) {
       status = "improved";
     }
 
@@ -226,7 +244,7 @@ function renderMarkdown(
   out.push(`## ${summaryTitle}`);
   out.push("");
   out.push(
-    `Thresholds: throughput regression \`>${opts.thresholdOps}%\`, memory regression \`>${opts.thresholdMem}%\`. Current run on \`${opts.current.platform}\`, Node \`${opts.current.node}\`, captured \`${opts.current.timestamp}\`.`,
+    `Variance-aware thresholds by ops/sec bucket: throughput \`>15%\` for >100K, \`>8%\` for >10K, \`>5%\` otherwise (memory \`>20%\` / \`>10%\`). Minimum overrides \`>${opts.thresholdOps}%\` / \`>${opts.thresholdMem}%\`. Current run on \`${opts.current.platform}\`, Node \`${opts.current.node}\`, captured \`${opts.current.timestamp}\`.`,
   );
   if (opts.baseline) {
     out.push(
