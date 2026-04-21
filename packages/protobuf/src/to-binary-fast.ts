@@ -65,6 +65,10 @@ import {
 import { protoInt64 } from "./proto-int64.js";
 import { toBinary } from "./to-binary.js";
 import { getTextEncoding } from "./wire/text-encoding.js";
+import {
+  selectOrObserve,
+  type VariantHelpers,
+} from "./wire/schema-plan-adaptive.js";
 
 // -----------------------------------------------------------------------------
 // Support detection
@@ -939,6 +943,55 @@ function writeMessageInto(
 // Entry point
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// Adaptive (L3) glue
+// -----------------------------------------------------------------------------
+//
+// L3 is an opt-in overlay that observes message shapes per schema and
+// graduates specialized per-shape plans after a warmup window. The generic
+// L1+L2 estimate/write helpers above are exposed to L3 through
+// `adaptiveHelpers` so that a variant plan's unrolled step list can call
+// directly into them without re-entering the field-presence gate.
+//
+// Default: adaptive is off. Enable per-call via `{ adaptive: true }` or
+// globally via `process.env.PROTOBUF_ES_L3 === "1"`. See
+// `packages/protobuf/src/wire/schema-plan-adaptive.ts`.
+
+const adaptiveHelpers: VariantHelpers = {
+  estimateRegular: (field, value, sizes) =>
+    estimateRegularFieldSize(field, value, sizes),
+  estimateMap: (field, obj, sizes) =>
+    estimateMapFieldSize(field as DescField & { fieldKind: "map" }, obj, sizes),
+  writeRegular: (cursor, field, value, sizes) =>
+    writeRegularField(cursor as Cursor, field, value, sizes),
+  writeMap: (cursor, field, obj, sizes) =>
+    writeMapField(
+      cursor as Cursor,
+      field as DescField & { fieldKind: "map" },
+      obj,
+      sizes,
+    ),
+};
+
+function adaptiveDefault(): boolean {
+  // Cross-runtime lookup avoids depending on @types/node in this package.
+  const g = globalThis as {
+    process?: { env?: Record<string, string | undefined> };
+  };
+  return g.process?.env?.PROTOBUF_ES_L3 === "1";
+}
+
+/**
+ * Options accepted by {@link toBinaryFast}.
+ *
+ * `adaptive` turns on L3 runtime monomorphization: the encoder observes
+ * message shapes per schema and graduates specialized plans for the
+ * recurring ones (see `wire/schema-plan-adaptive.ts`). Default: false.
+ */
+export interface ToBinaryFastOptions {
+  adaptive?: boolean;
+}
+
 /**
  * Opt-in fast-path binary encoder. See the top-of-file comment for the
  * motivation and scope.
@@ -956,12 +1009,38 @@ function writeMessageInto(
 export function toBinaryFast<Desc extends DescMessage>(
   schema: Desc,
   message: MessageShape<Desc>,
+  options?: ToBinaryFastOptions,
 ): Uint8Array<ArrayBuffer> {
   if (!isSupported(schema)) {
     return toBinary(schema, message);
   }
-  const sizes: SizeMap = new Map();
   const msg = message as unknown as Record<string, unknown>;
+  const adaptive = options?.adaptive ?? adaptiveDefault();
+
+  if (adaptive) {
+    const variant = selectOrObserve(schema, msg, adaptiveHelpers);
+    if (variant !== undefined) {
+      const sizes: SizeMap = new Map();
+      const total = variant.estimate(msg, sizes);
+      const buf = new Uint8Array(total);
+      const cursor: Cursor = {
+        buf,
+        view: new DataView(buf.buffer, buf.byteOffset, buf.byteLength),
+        pos: 0,
+        encodeUtf8: getTextEncoding().encodeUtf8,
+      };
+      variant.write(cursor, msg, sizes);
+      if (cursor.pos !== total) {
+        throw new Error(
+          `toBinaryFast (L3): size/write mismatch (est=${total} wrote=${cursor.pos}) — please report this as a bug`,
+        );
+      }
+      return buf;
+    }
+    // Observation miss — fall through to generic.
+  }
+
+  const sizes: SizeMap = new Map();
   const total = estimateMessageSize(schema, msg, sizes);
   const buf = new Uint8Array(total);
   const cursor: Cursor = {

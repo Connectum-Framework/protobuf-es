@@ -485,7 +485,7 @@ export function generateBenchmarkDeltaChart(
   const barHeight = 14;
   const marginLeft = 250; // room for fixture names
   const marginRight = 90; // room for value labels on long bars
-  const marginTop = 80;
+  const marginTop = 120; // room for title, subtitle, legend, axis labels
   const marginBottom = 40;
   const chartHeight = rows.length * rowHeight;
   const chartWidth = 520;
@@ -549,10 +549,12 @@ export function generateBenchmarkDeltaChart(
       `</text>\n`,
   );
 
-  // Legend row (above the chart body).
-  const legendY = marginTop - 18;
+  // Legend row — placed well above the axis ticks, indented from the
+  // left margin so the fixture labels underneath never crowd it.
+  const legendY = marginTop - 52;
+  const legendX = marginLeft - 100;
   parts.push(
-    `  <g transform="translate(${marginLeft}, ${legendY})">\n` +
+    `  <g transform="translate(${legendX}, ${legendY})">\n` +
       `    <rect x="0" y="0" width="14" height="10" fill="${colorVsToBinary}" />\n` +
       `    <text x="18" y="9">vs toBinary</text>\n` +
       `    <rect x="140" y="0" width="14" height="10" fill="${colorVsProtobufjs}" />\n` +
@@ -567,7 +569,7 @@ export function generateBenchmarkDeltaChart(
     const x = marginLeft + ((pct - minPct) / pctRange) * chartWidth;
     parts.push(
       `  <line class="grid" x1="${x}" x2="${x}" y1="${marginTop}" y2="${marginTop + chartHeight}" />\n` +
-        `  <text x="${x}" y="${marginTop - 3}" text-anchor="middle" font-size="10" fill="#777">${pct}%</text>\n`,
+        `  <text x="${x}" y="${marginTop - 8}" text-anchor="middle" font-size="10" fill="#777">${pct}%</text>\n`,
     );
   }
 
@@ -586,11 +588,13 @@ export function generateBenchmarkDeltaChart(
       `  <text x="${marginLeft - 8}" y="${rowY + rowHeight / 2 + 4}" text-anchor="end">${escapeXml(row.fixture)}</text>\n`,
     );
 
-    // vs toBinary bar (upper half of the row).
+    // vs toBinary bar (upper half of the row). Extra 6px vertical gap
+    // from the row split keeps the bar's numeric label clear of the
+    // lower bar beneath it.
     if (row.vsToBinaryPct !== undefined) {
       const pct = row.vsToBinaryPct;
       const w = pctToWidth(pct);
-      const y = rowY + (rowHeight / 2 - barHeight - 2);
+      const y = rowY + (rowHeight / 2 - barHeight - 5);
       const x = pct >= 0 ? zeroX : zeroX - w;
       parts.push(
         `  <rect x="${x}" y="${y}" width="${w}" height="${barHeight}" fill="${colorVsToBinary}">\n` +
@@ -611,7 +615,7 @@ export function generateBenchmarkDeltaChart(
     if (row.vsProtobufjsPct !== undefined) {
       const pct = row.vsProtobufjsPct;
       const w = pctToWidth(pct);
-      const y = rowY + rowHeight / 2 + 2;
+      const y = rowY + rowHeight / 2 + 5;
       const x = pct >= 0 ? zeroX : zeroX - w;
       parts.push(
         `  <rect x="${x}" y="${y}" width="${w}" height="${barHeight}" fill="${colorVsProtobufjs}">\n` +

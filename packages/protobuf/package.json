@@ -50,6 +50,10 @@
     "./wire": {
       "import": "./dist/esm/wire/index.js",
       "require": "./dist/cjs/wire/index.js"
+    },
+    "./wire/schema-plan-adaptive": {
+      "import": "./dist/esm/wire/schema-plan-adaptive.js",
+      "require": "./dist/cjs/wire/schema-plan-adaptive.js"
     }
   },
   "typesVersions": {
@@ -58,7 +62,8 @@
       "codegenv2": ["./dist/cjs/codegenv2/index.d.ts"],
       "reflect": ["./dist/cjs/reflect/index.d.ts"],
       "wkt": ["./dist/cjs/wkt/index.d.ts"],
-      "wire": ["./dist/cjs/wire/index.d.ts"]
+      "wire": ["./dist/cjs/wire/index.d.ts"],
+      "wire/schema-plan-adaptive": ["./dist/cjs/wire/schema-plan-adaptive.d.ts"]
     }
   },
   "devDependencies": {
