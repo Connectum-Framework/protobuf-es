@@ -14,15 +14,15 @@
 
 // Benchmark report generator.
 //
-// Runs a multi-encoder matrix (toBinary, toBinaryFast, protobufjs) across
-// the fixture set exposed by bench-matrix.ts, then emits:
+// Runs a three-encoder matrix (upstream-protobuf-es, fork's toBinary,
+// protobufjs) across the fixture set exposed by bench-matrix.ts, then emits:
 //
 //   1. bench-results.json — machine-readable raw data for CI diffing.
 //   2. chart.svg          — grouped-bar SVG chart (log ops/sec per fixture)
 //                            with numeric labels above each bar.
-//   3. chart-delta.svg    — linear-scale bar chart showing toBinaryFast's
-//                            percentage speedup over both baselines
-//                            (toBinary, protobufjs) per fixture.
+//   3. chart-delta.svg    — linear-scale bar chart showing the fork's
+//                            `toBinary` percentage speedup over both
+//                            baselines (upstream, protobufjs) per fixture.
 //   4. README.md          — markdown table injected between the
 //                            <!--BENCHMARK_TABLE_START/END--> markers.
 //
@@ -40,7 +40,14 @@
 // `BENCH_REPORT_READ_ONLY=1`.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { toBinary, toBinaryFast } from "@bufbuild/protobuf";
+import { toBinary } from "@bufbuild/protobuf";
+// `upstream-protobuf-es` is an npm alias for `@bufbuild/protobuf@latest`
+// installed as a regular devDependency. This gives us the unmodified
+// upstream encoder alongside the fork's in-tree copy in the same process,
+// so the report can measure the honest cumulative gain from the original
+// protobuf-es baseline (which predates the L0 contiguous-writer work in
+// PR #8) instead of only showing the fork's current state in isolation.
+import { toBinary as upstreamToBinary } from "upstream-protobuf-es";
 import { Bench } from "tinybench";
 
 import {
@@ -169,12 +176,20 @@ async function runReportBench(): Promise<BenchmarkResult[]> {
   // protobuf-es encoders. We never change the schema/message references
   // inside the benchmark function body — that would pull allocation cost
   // into the measurement. Everything is captured in the closure once.
+  //
+  // The `upstream-protobuf-es` bar uses `@bufbuild/protobuf@latest` via
+  // the aliased devDependency. The fork's generated schemas import from
+  // the fork's `@bufbuild/protobuf`, but the descriptor protocol is
+  // wire-compatible between the two v2 versions — upstream.toBinary
+  // accepts the same schema/message pair and produces identical bytes.
+  // That lets a single schema drive bars from both libraries, no
+  // separate codegen needed.
   for (const p of prepared) {
+    bench.add(`${p.name} :: upstream-protobuf-es`, () => {
+      upstreamToBinary(p.schema, p.msg);
+    });
     bench.add(`${p.name} :: toBinary`, () => {
       toBinary(p.schema, p.msg);
-    });
-    bench.add(`${p.name} :: toBinaryFast`, () => {
-      toBinaryFast(p.schema, p.msg);
     });
   }
 
@@ -236,23 +251,65 @@ const readmePath = `${outDir}README.md`;
 let results: BenchmarkResult[];
 if (process.env.BENCH_REPORT_READ_ONLY === "1" && existsSync(resultsPath)) {
   // Re-render mode: useful while iterating on chart / table layout so the
-  // author does not pay the ~30s benchmark cost for each rendering tweak.
+  // author does not pay the benchmark cost for each rendering tweak.
   const raw = JSON.parse(readFileSync(resultsPath, "utf-8")) as {
     results: BenchmarkResult[];
   };
   results = raw.results;
   console.log(`Loaded ${results.length} results from ${resultsPath}`);
 } else {
-  console.log("Running benchmark matrix for report (this takes ~30s)...");
-  results = await runReportBench();
+  // Median-of-N runs to stabilize per-fixture numbers against host jitter.
+  // Single-run measurements on small/fast fixtures (SimpleMessage, RPC
+  // envelopes) easily vary by 2-8x across back-to-back runs on an
+  // unpinned host; medians cancel that out. Override via
+  // BENCH_REPORT_RUNS env var (default 5, min 1).
+  const runsEnv = Number.parseInt(process.env.BENCH_REPORT_RUNS ?? "5", 10);
+  const runs = Number.isFinite(runsEnv) && runsEnv > 0 ? runsEnv : 5;
+  console.log(
+    `Running benchmark matrix for report (${runs} runs × ~30s each, median aggregated)...`,
+  );
+  const runResults: BenchmarkResult[][] = [];
+  for (let i = 0; i < runs; i++) {
+    console.log(`  run ${i + 1}/${runs}`);
+    runResults.push(await runReportBench());
+  }
+  // Median per (fixture, encoder) pair. encodedSize is identical across
+  // runs for the same fixture/encoder, so first occurrence wins.
+  const keyed = new Map<string, { ops: number[]; encodedSize: number }>();
+  for (const run of runResults) {
+    for (const r of run) {
+      const key = `${r.fixture}::${r.encoder}`;
+      const bucket = keyed.get(key);
+      if (bucket) {
+        bucket.ops.push(r.opsPerSec);
+      } else {
+        keyed.set(key, { ops: [r.opsPerSec], encodedSize: r.encodedSize });
+      }
+    }
+  }
+  const firstRunOrder = runResults[0];
+  results = firstRunOrder.map((r) => {
+    const key = `${r.fixture}::${r.encoder}`;
+    const bucket = keyed.get(key);
+    const sorted = bucket ? [...bucket.ops].sort((a, b) => a - b) : [];
+    const median =
+      sorted.length === 0 ? 0 : sorted[Math.floor(sorted.length / 2)];
+    return {
+      fixture: r.fixture,
+      encoder: r.encoder,
+      opsPerSec: median,
+      encodedSize: bucket?.encodedSize ?? r.encodedSize,
+    };
+  });
   const payload = {
     node: process.version,
     platform: `${process.platform}/${process.arch}`,
     timestamp: new Date().toISOString(),
+    runs,
     results,
   };
   writeFileSync(resultsPath, `${JSON.stringify(payload, null, 2)}\n`);
-  console.log(`Wrote ${resultsPath}`);
+  console.log(`Wrote ${resultsPath} (median of ${runs} runs)`);
 }
 
 // Build outputs. The chart and table see identical inputs, so any
@@ -265,12 +322,13 @@ const chart = generateBenchmarkChart(results);
 writeFileSync(chartPath, chart);
 console.log(`Wrote ${chartPath}`);
 
-// Delta chart: linear-scale view of toBinaryFast's % improvement over
-// toBinary per fixture, with an optional protobufjs comparison where the
-// bar is available. Log-scale charts hide the absolute magnitude of the
-// gain on shape-specific bars that already render close to each other on
-// the main chart; the delta chart is the one consumers should look at
-// when they want "how much faster, in plain terms".
+// Delta chart: linear-scale view of the fork's `toBinary` (L0) %
+// improvement over the upstream @bufbuild/protobuf baseline, with an
+// optional protobufjs comparison where the bar is available. Log-scale
+// charts hide the absolute magnitude of the gain on shape-specific bars
+// that already render close to each other on the main chart; the delta
+// chart is the one consumers should look at when they want "how much
+// faster than original protobuf-es, in plain terms".
 const deltaChart = generateBenchmarkDeltaChart(results);
 writeFileSync(deltaChartPath, deltaChart);
 console.log(`Wrote ${deltaChartPath}`);

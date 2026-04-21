@@ -33,9 +33,8 @@
 //   - medium: 10 ExportTraceRequest batches × 100 spans each (OTel export)
 //   - large:  5 K8sPodList chunks × 20 pods each (kubelet list pagination)
 //
-// Three encoders are compared per shape:
-//   - reflective (toBinary + length prefix)
-//   - fast (toBinaryFast + length prefix, L0+L1+L2 stack)
+// Two encoders are compared per shape:
+//   - reflective (toBinary + length prefix, fork's L0 contiguous writer)
 //   - protobufjs (ctor.encodeDelimited, ahead-of-time codegen, where loaded)
 //
 // The output is:
@@ -49,7 +48,7 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { toBinary, toBinaryFast } from "@bufbuild/protobuf";
+import { toBinary } from "@bufbuild/protobuf";
 import { BinaryWriter } from "@bufbuild/protobuf/wire";
 import { Bench } from "tinybench";
 
@@ -304,9 +303,9 @@ function buildLargeStream(): StreamShape {
   );
   // K8s has a deeper init shape for pbjs; we skip pbjs on the large stream
   // rather than duplicate hundreds of lines from report-pbjs.ts here. The
-  // intent of the large stream is primarily protobuf-es self-comparison
-  // (toBinary vs toBinaryFast) on big payloads; pbjs parity is covered by
-  // the main report for the same fixture, just without the streaming wrap.
+  // intent of the large stream is primarily protobuf-es encode throughput
+  // on big payloads; pbjs parity is covered by the main report for the
+  // same fixture, just without the streaming wrap.
   return {
     label: `large stream (${LARGE_STREAM_LEN} × K8sPodList, ${K8S_POD_COUNT} pods each)`,
     shape: "kubelet list pagination — map-heavy configuration payloads",
@@ -339,14 +338,6 @@ function encodeStreamReflective(
   return writer.finish();
 }
 
-function encodeStreamFast(schema: AnySchema, messages: AnyMsg[]): Uint8Array {
-  const writer = new BinaryWriter();
-  for (let i = 0; i < messages.length; i++) {
-    writer.bytes(toBinaryFast(schema, messages[i]));
-  }
-  return writer.finish();
-}
-
 function encodeStreamPbjs(
   ctor: PbjsCtor,
   messages: Record<string, unknown>[],
@@ -370,7 +361,7 @@ function encodeStreamPbjs(
 
 interface StreamingResult {
   fixture: string;
-  encoder: "toBinary" | "toBinaryFast" | "protobufjs";
+  encoder: "toBinary" | "protobufjs";
   streamLen: number;
   bytes: number;
   opsPerSec: number;
@@ -398,14 +389,6 @@ async function runStreamingBench() {
   // Measure stream byte size once (all iterations produce the same bytes).
   const prepared = streams.map((s) => {
     const reflectiveBytes = encodeStreamReflective(s.schema, s.esMessages);
-    const fastBytes = encodeStreamFast(s.schema, s.esMessages);
-    // Parity check — if toBinary and toBinaryFast disagree on stream bytes
-    // we are measuring different workloads. Log so CI flags it.
-    if (reflectiveBytes.byteLength !== fastBytes.byteLength) {
-      console.warn(
-        `stream ${s.label}: toBinary=${reflectiveBytes.byteLength}B vs toBinaryFast=${fastBytes.byteLength}B — byte counts differ, investigate`,
-      );
-    }
     const pbjsBytes = s.pbjs
       ? encodeStreamPbjs(s.pbjs.ctor, s.pbjs.messages).byteLength
       : null;
@@ -417,14 +400,6 @@ async function runStreamingBench() {
       `${p.label} :: sizeDelimitedEncode via toBinary (${p.streamBytes} B)`,
       () => {
         encodeStreamReflective(p.schema, p.esMessages);
-      },
-    );
-  }
-  for (const p of prepared) {
-    bench.add(
-      `${p.label} :: sizeDelimitedEncode via toBinaryFast (${p.streamBytes} B)`,
-      () => {
-        encodeStreamFast(p.schema, p.esMessages);
       },
     );
   }
@@ -457,13 +432,9 @@ function collectResults(
     const [, label, kind, bytesStr] = match;
     const stream = streamByLabel.get(label);
     if (!stream) continue;
-    const encoder: StreamingResult["encoder"] = kind.includes(
-      "via toBinaryFast",
-    )
-      ? "toBinaryFast"
-      : kind.includes("via toBinary")
-        ? "toBinary"
-        : "protobufjs";
+    const encoder: StreamingResult["encoder"] = kind.includes("via toBinary")
+      ? "toBinary"
+      : "protobufjs";
     const bytes = Number(bytesStr);
     const opsPerSec = task.result?.hz ?? 0;
     out.push({

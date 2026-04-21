@@ -32,7 +32,7 @@
 //
 // Or via the wrapper script: `npm run bench:heap-prof`.
 
-import { toBinary, toBinaryFast } from "@bufbuild/protobuf";
+import { toBinary } from "@bufbuild/protobuf";
 
 import { ExportTraceRequestSchema } from "./gen/nested_pb.js";
 import { K8sPodListSchema } from "./gen/k8s-pod_pb.js";
@@ -51,7 +51,7 @@ import {
 // Keep argument parsing minimal — a shell script wraps this driver so we
 // don't need a full CLI framework. Accepted args:
 //   --fixture=<name>    fixture key (default: otel100)
-//   --encoder=<name>    toBinary | toBinaryFast (default: toBinaryFast)
+//   --encoder=<name>    toBinary (only encoder shipped on main)
 //   --iterations=<n>    iterations to run (default: 1000)
 
 function parseArg(name: string, fallback: string): string {
@@ -61,7 +61,7 @@ function parseArg(name: string, fallback: string): string {
 }
 
 const fixtureKey = parseArg("fixture", "otel100");
-const encoderName = parseArg("encoder", "toBinaryFast");
+const encoderName = parseArg("encoder", "toBinary");
 const iterations = Number(parseArg("iterations", "1000"));
 
 // biome-ignore lint/suspicious/noExplicitAny: dispatch is intentionally loose
@@ -113,12 +113,8 @@ function resolveEncoder(
   switch (name) {
     case "toBinary":
       return toBinary;
-    case "toBinaryFast":
-      return toBinaryFast;
     default:
-      throw new Error(
-        `unknown encoder '${name}' — use 'toBinary' or 'toBinaryFast'`,
-      );
+      throw new Error(`unknown encoder '${name}' — use 'toBinary'`);
   }
 }
 
