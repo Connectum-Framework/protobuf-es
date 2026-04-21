@@ -1,15 +1,24 @@
 name: benchmark
 
 # Runs the benchmark matrix on every PR targeting main, on pushes to main
-# (baseline refresh), and on manual dispatch. The job compares PR ops/s
-# against the latest main baseline and flags >5% throughput regressions
-# and >10% memory regressions.
+# (baseline refresh), and on manual dispatch.
+#
+# Variance control: the PR job benchmarks BOTH origin/main and the PR
+# branch on the SAME runner within the SAME workflow invocation. This
+# eliminates cross-host variance (different physical CPUs, SMT
+# neighbours, thermal states) that otherwise leaks past taskset pinning
+# plus median-of-5 and produces 5-7% false-positive regressions. The
+# comparison is then host-identical — every factor except the code under
+# test is held constant.
 #
 # Storage model (see benchmarks/baselines/README.md):
-#   - Artifacts hold the authoritative JSON for trend history (90-day
-#     retention for PRs, 365 days for the main baseline).
-#   - `benchmarks/baselines/main.json` is an in-repo quick-reference copy
-#     that gets refreshed by a follow-up chore PR after a merge to main.
+#   - `bench-baseline-main` artifact is still uploaded on every push to
+#     main so external consumers / trend dashboards keep working. PR
+#     comparison no longer reads from it.
+#   - `bench-results-<pr-or-sha>` artifact holds the PR's own numbers
+#     with 90-day retention for post-hoc investigation.
+#   - `benchmarks/baselines/main.json` remains the in-repo
+#     quick-reference copy refreshed by a follow-up chore PR.
 
 on:
   pull_request:
@@ -41,14 +50,18 @@ jobs:
   bench-matrix:
     name: bench-matrix (${{ github.event_name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Two full bench passes (baseline + current) with median-of-5 take
+    # roughly 2x the single-pass time. Previous single-pass runs landed
+    # around 9 min; 40 min buffer covers the doubled work plus install +
+    # build overhead even on a slow runner.
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Enough history that we can also check out the base branch for
-          # the baseline comparison pass if the artifact download fails.
+          # Enough history that we can also check out origin/main for the
+          # same-runner baseline pass.
           fetch-depth: 0
 
       - name: Setup Node ${{ env.NODE_VERSION }}
@@ -57,18 +70,66 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
-      - name: Install
+      - name: Record commit SHAs
+        id: shas
+        run: |
+          set -euo pipefail
+          echo "current=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # fetch-depth: 0 above should already have origin/main, but
+            # an explicit fetch makes the resolve idempotent on shallow
+            # edge cases.
+            git fetch --no-tags --depth=1 origin main
+            echo "main=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ----------------------------------------------------------------
+      # Same-runner baseline (PR only). Check out origin/main, install,
+      # build, and run the matrix. Output is `baseline-results.json`.
+      # ----------------------------------------------------------------
+      - name: Checkout main (for baseline)
+        if: github.event_name == 'pull_request'
+        run: git -c advice.detachedHead=false checkout ${{ steps.shas.outputs.main }} --
+
+      - name: Install (main)
+        if: github.event_name == 'pull_request'
         run: npm ci --ignore-scripts
         env:
           HUSKY: 0
 
-      - name: Build @bufbuild/protobuf
+      - name: Build @bufbuild/protobuf (main)
+        if: github.event_name == 'pull_request'
         run: npx turbo run build --filter=@bufbuild/protobuf
 
-      - name: Generate benchmark code (proto + pbjs)
+      - name: Generate benchmark code (main)
+        if: github.event_name == 'pull_request'
         run: npx turbo run generate --filter=@bufbuild/protobuf-benchmarks
 
-      - name: Run benchmark matrix
+      - name: Run benchmark matrix (baseline / main)
+        if: github.event_name == 'pull_request'
+        working-directory: benchmarks
+        run: bash scripts/run-matrix-ci.sh baseline-results.json
+
+      - name: Return to PR head
+        if: github.event_name == 'pull_request'
+        run: git -c advice.detachedHead=false checkout ${{ steps.shas.outputs.current }} --
+
+      # ----------------------------------------------------------------
+      # Current run. For PRs this is the PR merge commit; for push-to-main
+      # it is main itself (and becomes the new baseline artifact).
+      # ----------------------------------------------------------------
+      - name: Install (current)
+        run: npm ci --ignore-scripts
+        env:
+          HUSKY: 0
+
+      - name: Build @bufbuild/protobuf (current)
+        run: npx turbo run build --filter=@bufbuild/protobuf
+
+      - name: Generate benchmark code (current)
+        run: npx turbo run generate --filter=@bufbuild/protobuf-benchmarks
+
+      - name: Run benchmark matrix (current)
         working-directory: benchmarks
         run: bash scripts/run-matrix-ci.sh bench-results.json
 
@@ -79,59 +140,22 @@ jobs:
           path: benchmarks/bench-results.json
           retention-days: 90
 
-      # ------------------------------------------------------------------
-      # Baseline acquisition (PR only). For `push` to main, the PR run
-      # becomes the new baseline — the artifact upload below is sufficient.
-      # ------------------------------------------------------------------
-
-      - name: Download latest main baseline artifact
-        if: github.event_name == 'pull_request'
-        id: dl-baseline
-        uses: dawidd6/action-download-artifact@v6
-        continue-on-error: true
-        with:
-          workflow: benchmark.yaml
-          branch: main
-          name: bench-baseline-main
-          path: benchmarks/baseline-download
-          search_artifacts: true
-          if_no_artifact_found: warn
-
-      - name: Resolve baseline source
-        if: github.event_name == 'pull_request'
-        run: |
-          set -euo pipefail
-          if [[ -f benchmarks/baseline-download/bench-results.json ]]; then
-            cp benchmarks/baseline-download/bench-results.json benchmarks/baseline-results.json
-            echo "Using downloaded main artifact as baseline."
-          elif [[ -f benchmarks/baselines/main.json ]]; then
-            cp benchmarks/baselines/main.json benchmarks/baseline-results.json
-            echo "Using in-repo benchmarks/baselines/main.json as baseline."
-          else
-            echo "No baseline available — compare step will emit an informational report."
-          fi
-
+      # ----------------------------------------------------------------
+      # Compare and comment (PR only). Baseline is the JSON we just
+      # produced on this same runner a few minutes ago.
+      # ----------------------------------------------------------------
       - name: Compare PR against baseline
         if: github.event_name == 'pull_request'
         id: compare
         working-directory: benchmarks
         run: |
           set -euo pipefail
-          if [[ -f baseline-results.json ]]; then
-            npx tsx scripts/compare-results.ts \
-              --baseline=baseline-results.json \
-              --current=bench-results.json \
-              --output=bench-report.md \
-              --threshold-ops=5 \
-              --threshold-mem=10
-          else
-            npx tsx scripts/compare-results.ts \
-              --current=bench-results.json \
-              --output=bench-report.md \
-              --threshold-ops=5 \
-              --threshold-mem=10 \
-              --no-baseline
-          fi
+          npx tsx scripts/compare-results.ts \
+            --baseline=baseline-results.json \
+            --current=bench-results.json \
+            --output=bench-report.md \
+            --threshold-ops=5 \
+            --threshold-mem=10
           if grep -q "REGRESSION" bench-report.md 2>/dev/null; then
             echo "status=regression" >> "$GITHUB_OUTPUT"
           else
@@ -150,12 +174,10 @@ jobs:
         run: |
           echo "::warning::Benchmark matrix flagged a regression. See the PR comment for the full table."
 
-      # ------------------------------------------------------------------
-      # Baseline refresh (push-to-main only). The PR run becomes the new
-      # authoritative baseline and gets uploaded as a stable-named artifact
-      # so subsequent PR jobs can pull it.
-      # ------------------------------------------------------------------
-
+      # ----------------------------------------------------------------
+      # Baseline refresh (push-to-main only). Uploaded for external /
+      # historical consumers; PR jobs no longer read from it.
+      # ----------------------------------------------------------------
       - name: Upload baseline artifact (main only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4

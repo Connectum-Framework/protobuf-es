@@ -233,7 +233,8 @@ function renderMarkdown(
   out.push("");
   out.push(
     `Thresholds: throughput regression \`>${opts.thresholdOps}%\`, memory regression \`>${opts.thresholdMem}%\`. ` +
-      `Runner pinned to CPU 0 via taskset. Current run on \`${opts.current.platform}\`, Node \`${opts.current.node}\`, captured \`${opts.current.timestamp}\`.`,
+      `Runner pinned to CPU 0 via taskset; baseline and current are benchmarked on the same runner within one workflow invocation. ` +
+      `Current run on \`${opts.current.platform}\`, Node \`${opts.current.node}\`, captured \`${opts.current.timestamp}\`.`,
   );
   if (opts.baseline) {
     out.push(
