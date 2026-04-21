@@ -190,26 +190,29 @@ of what main delivers today.
 
 The authoritative numbers live in the auto-generated table and charts
 above — regenerate via `npm run bench:report -w
-@bufbuild/protobuf-benchmarks`. The writer stack that produces those
-numbers is:
+@bufbuild/protobuf-benchmarks` (median of 5 runs by default; override
+via `BENCH_REPORT_RUNS`). The public `toBinary` on main ships a single
+optimisation layer:
 
 - **L0 (contiguous BinaryWriter).** Single growable `Uint8Array` + `pos`
-  cursor. Replaced the fork/join chunk-list writer. Direct gain from
-  eliminating per-submessage allocations.
-- **L1 (schema plan).** Each `DescMessage` compiles once into a plan that
-  pre-computes tag bytes, field numbers, and wire types; subsequent
-  encodes walk the plan instead of the descriptor.
-- **L2 (specialized field writers).** Per-scalar-type inlined writers
-  keyed by `ScalarType`, skipping the reflective dispatch on the hot
-  path. ASCII fast-path in the string writer.
+  cursor. Replaced upstream's fork/join chunk-list writer. Eliminates
+  per-submessage allocations on nested messages, preserves byte-identical
+  output vs upstream, and keeps the public `toBinary` signature unchanged.
 
-Combined, the stack brings `toBinaryFast` to **roughly 0.80x protobufjs
-on the OTel 100-span fixture** without codegen, up from the baseline
-reflective path at ~0.18x. Fixtures where protobufjs is dramatically
-ahead (SimpleMessage, GraphQLRequest, RpcRequest) are dominated by
-per-call overhead on small payloads — pbjs static-module codegen wins on
-those because its generated encoder inlines the entire write without a
-single function-pointer indirection.
+On the OTel 100-span fixture the fork's `toBinary` runs at **roughly
+0.88x protobufjs** — `toBinary` 1,634 ops/s vs protobufjs 1,849 ops/s —
+up from upstream's reflective baseline at ~0.29x protobufjs (536 ops/s).
+The cumulative gain over upstream ranges from **+6%** on tiny flat
+messages (SimpleMessage) to **+275%** on map-heavy configs (K8sPodList)
+and **+265%** on deeply-nested synthetic stress messages. Fixtures where
+protobufjs is dramatically ahead (SimpleMessage, GraphQLRequest,
+GraphQLResponse) are dominated by per-call overhead on small payloads —
+pbjs static-module codegen wins on those because its generated encoder
+inlines the entire write without a single function-pointer indirection.
+
+Higher-level optimisations (L1 schema plans, L2 specialized field
+writers) were prototyped as `toBinaryFast` but removed from main — see
+"Archived work" below.
 
 ### Known-pathological case: `fromJsonString + toBinary`
 
@@ -334,13 +337,32 @@ The `.heapprofile` file is also directly openable in Chrome DevTools
 - **`ts-proto` comparison** on the same fixtures (separate package,
   opt-in dependency). Would round out the "ahead-of-time codegen"
   comparison group alongside protobufjs.
-- **Multi-shape benchmark in CI matrix.** `bench-multishape.ts` exists
-  but only runs locally; CI currently measures single-shape repeated
-  encode, which underweights scenarios where the same schema is encoded
-  with multiple distinct field-presence patterns (RPC request/response
-  variants, oneof arms). A future pass should integrate multi-shape
-  rows into `bench-matrix.ts` so regressions on that axis surface in
-  PR reports.
-- **Decoder fast path.** `toBinaryFast` ships; an equivalent
-  `fromBinaryFast` would close the remaining gap to protobufjs on the
-  decode column of the matrix.
+- **Multi-shape benchmark in CI matrix.** CI currently measures
+  single-shape repeated encode, which underweights scenarios where the
+  same schema is encoded with multiple distinct field-presence patterns
+  (RPC request/response variants, oneof arms). A future pass should
+  add multi-shape rows into `bench-matrix.ts` so regressions on that
+  axis surface in PR reports.
+- **Decoder optimisation.** `fromBinary` on main is still the reflective
+  walk — a contiguous-reader equivalent of L0 would close the remaining
+  gap to protobufjs on the decode column of the matrix.
+
+## Archived work
+
+Earlier passes prototyped two higher-level optimisations on top of L0.
+Both were removed from main and preserved for future iteration:
+
+- **L1 (schema plan) + L2 (specialized field writers)** — compile each
+  `DescMessage` into an opcode plan that pre-computes tag bytes and
+  field wire types, then walk the plan instead of the descriptor on each
+  encode. Prototyped as an opt-in `toBinaryFast` export; merging it into
+  the public `toBinary` broke three extension-related unit tests and
+  six conformance cases because the plan walk does not cover extension
+  encoding. Preserved on branch
+  [`archive/l1-l2-schema-plans-experimental`](../../../tree/archive/l1-l2-schema-plans-experimental).
+- **L3 (runtime monomorphization)** — observe shape of messages handed
+  to the encoder, graduate frequently-seen shapes into specialised plan
+  variants that skip field-presence checks. Draft PR showed a 4-variant
+  cap with seal-on-breach; CI revealed a net regression on single-shape
+  workloads once the observation/lookup overhead was added to the hot
+  path. Code also archived on the same branch.
