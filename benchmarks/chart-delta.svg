@@ -17,105 +17,103 @@
     <rect x="260" y="0" width="14" height="10" fill="#6a8e7f" />
     <text x="278" y="9">vs protobufjs</text>
   </g>
-  <line class="grid" x1="325.5082401378448" x2="325.5082401378448" y1="120" y2="540" />
-  <text x="325.5082401378448" y="112" text-anchor="middle" font-size="10" fill="#777">0%</text>
-  <line class="grid" x1="423.7426968163254" x2="423.7426968163254" y1="120" y2="540" />
-  <text x="423.7426968163254" y="112" text-anchor="middle" font-size="10" fill="#777">100%</text>
-  <line class="grid" x1="521.977153494806" x2="521.977153494806" y1="120" y2="540" />
-  <text x="521.977153494806" y="112" text-anchor="middle" font-size="10" fill="#777">200%</text>
-  <line class="grid" x1="620.2116101732865" x2="620.2116101732865" y1="120" y2="540" />
-  <text x="620.2116101732865" y="112" text-anchor="middle" font-size="10" fill="#777">300%</text>
-  <line class="grid" x1="718.4460668517671" x2="718.4460668517671" y1="120" y2="540" />
-  <text x="718.4460668517671" y="112" text-anchor="middle" font-size="10" fill="#777">400%</text>
-  <line class="zero" x1="325.5082401378448" x2="325.5082401378448" y1="120" y2="540" />
+  <line class="grid" x1="342.68717275440054" x2="342.68717275440054" y1="120" y2="540" />
+  <text x="342.68717275440054" y="112" text-anchor="middle" font-size="10" fill="#777">0%</text>
+  <line class="grid" x1="485.12478183626706" x2="485.12478183626706" y1="120" y2="540" />
+  <text x="485.12478183626706" y="112" text-anchor="middle" font-size="10" fill="#777">100%</text>
+  <line class="grid" x1="627.5623909181335" x2="627.5623909181335" y1="120" y2="540" />
+  <text x="627.5623909181335" y="112" text-anchor="middle" font-size="10" fill="#777">200%</text>
+  <line class="grid" x1="770" x2="770" y1="120" y2="540" />
+  <text x="770" y="112" text-anchor="middle" font-size="10" fill="#777">300%</text>
+  <line class="zero" x1="342.68717275440054" x2="342.68717275440054" y1="120" y2="540" />
   <text x="242" y="145" text-anchor="end">SimpleMessage</text>
-  <rect x="316.161294591873" y="122" width="9.346945545971757" height="14" fill="#e55137">
-    <title>SimpleMessage: fork toBinary vs upstream = -9.5%</title>
+  <rect x="342.68717275440054" y="122" width="9.654329887314306" height="14" fill="#e55137">
+    <title>SimpleMessage: fork toBinary vs upstream = 6.8%</title>
   </rect>
-  <text x="312.161294591873" y="133" text-anchor="end" font-size="10" fill="#333">-10%</text>
-  <rect x="255.35020218031312" y="146" width="70.15803795753166" height="14" fill="#6a8e7f">
-    <title>SimpleMessage: fork toBinary vs protobufjs = -71.4%</title>
+  <text x="356.34150264171484" y="133" text-anchor="start" font-size="10" fill="#333">7%</text>
+  <rect x="264.69566516679816" y="146" width="77.99150758760238" height="14" fill="#6a8e7f">
+    <title>SimpleMessage: fork toBinary vs protobufjs = -54.8%</title>
   </rect>
-  <text x="251.35020218031312" y="157" text-anchor="end" font-size="10" fill="#333">-71%</text>
+  <text x="260.69566516679816" y="157" text-anchor="end" font-size="10" fill="#333">-55%</text>
   <text x="242" y="187" text-anchor="end">ExportTraceRequest (100 spans)</text>
-  <rect x="325.5082401378448" y="164" width="241.29361949048223" height="14" fill="#e55137">
-    <title>ExportTraceRequest (100 spans): fork toBinary vs upstream = 245.6%</title>
+  <rect x="342.68717275440054" y="164" width="291.5398231900641" height="14" fill="#e55137">
+    <title>ExportTraceRequest (100 spans): fork toBinary vs upstream = 204.7%</title>
   </rect>
-  <text x="570.8018596283271" y="175" text-anchor="start" font-size="10" fill="#333">246%</text>
-  <rect x="301.2286412940574" y="188" width="24.279598843787355" height="14" fill="#6a8e7f">
-    <title>ExportTraceRequest (100 spans): fork toBinary vs protobufjs = -24.7%</title>
+  <text x="638.2269959444646" y="175" text-anchor="start" font-size="10" fill="#333">205%</text>
+  <rect x="326.14284621825095" y="188" width="16.544326536149565" height="14" fill="#6a8e7f">
+    <title>ExportTraceRequest (100 spans): fork toBinary vs protobufjs = -11.6%</title>
   </rect>
-  <text x="297.2286412940574" y="199" text-anchor="end" font-size="10" fill="#333">-25%</text>
+  <text x="322.14284621825095" y="199" text-anchor="end" font-size="10" fill="#333">-12%</text>
   <text x="242" y="229" text-anchor="end">ExportMetricsRequest (50 series)</text>
-  <rect x="325.5082401378448" y="206" width="259.6054197244734" height="14" fill="#e55137">
-    <title>ExportMetricsRequest (50 series): fork toBinary vs upstream = 264.3%</title>
+  <rect x="342.68717275440054" y="206" width="298.9574214294886" height="14" fill="#e55137">
+    <title>ExportMetricsRequest (50 series): fork toBinary vs upstream = 209.9%</title>
   </rect>
-  <text x="589.1136598623182" y="217" text-anchor="start" font-size="10" fill="#333">264%</text>
-  <rect x="305.45587693089834" y="230" width="20.052363206946456" height="14" fill="#6a8e7f">
-    <title>ExportMetricsRequest (50 series): fork toBinary vs protobufjs = -20.4%</title>
+  <text x="645.6445941838891" y="217" text-anchor="start" font-size="10" fill="#333">210%</text>
+  <rect x="324.0734520889531" y="230" width="18.61372066544746" height="14" fill="#6a8e7f">
+    <title>ExportMetricsRequest (50 series): fork toBinary vs protobufjs = -13.1%</title>
   </rect>
-  <text x="301.45587693089834" y="241" text-anchor="end" font-size="10" fill="#333">-20%</text>
+  <text x="320.0734520889531" y="241" text-anchor="end" font-size="10" fill="#333">-13%</text>
   <text x="242" y="271" text-anchor="end">ExportLogsRequest (100 records)</text>
-  <rect x="325.5082401378448" y="248" width="305.46254067558" height="14" fill="#e55137">
-    <title>ExportLogsRequest (100 records): fork toBinary vs upstream = 311.0%</title>
+  <rect x="342.68717275440054" y="248" width="322.7720222506336" height="14" fill="#e55137">
+    <title>ExportLogsRequest (100 records): fork toBinary vs upstream = 226.6%</title>
   </rect>
-  <text x="634.9707808134248" y="259" text-anchor="start" font-size="10" fill="#333">311%</text>
-  <rect x="292.13809518431657" y="272" width="33.370144953528225" height="14" fill="#6a8e7f">
-    <title>ExportLogsRequest (100 records): fork toBinary vs protobufjs = -34.0%</title>
+  <text x="669.4591950050342" y="259" text-anchor="start" font-size="10" fill="#333">227%</text>
+  <rect x="337.13777152389247" y="272" width="5.549401230508046" height="14" fill="#6a8e7f">
+    <title>ExportLogsRequest (100 records): fork toBinary vs protobufjs = -3.9%</title>
   </rect>
-  <text x="288.13809518431657" y="283" text-anchor="end" font-size="10" fill="#333">-34%</text>
+  <text x="333.13777152389247" y="283" text-anchor="end" font-size="10" fill="#333">-4%</text>
   <text x="242" y="313" text-anchor="end">K8sPodList (20 pods)</text>
-  <rect x="325.5082401378448" y="290" width="444.49175986215516" height="14" fill="#e55137">
-    <title>K8sPodList (20 pods): fork toBinary vs upstream = 452.5%</title>
+  <rect x="342.68717275440054" y="290" width="391.6879796557602" height="14" fill="#e55137">
+    <title>K8sPodList (20 pods): fork toBinary vs upstream = 275.0%</title>
   </rect>
-  <text x="774" y="301" text-anchor="start" font-size="10" fill="#333">452%</text>
-  <rect x="304.97258416572856" y="314" width="20.53565597211622" height="14" fill="#6a8e7f">
-    <title>K8sPodList (20 pods): fork toBinary vs protobufjs = -20.9%</title>
+  <text x="738.3751524101608" y="301" text-anchor="start" font-size="10" fill="#333">275%</text>
+  <rect x="317.36532834941937" y="314" width="25.32184440498114" height="14" fill="#6a8e7f">
+    <title>K8sPodList (20 pods): fork toBinary vs protobufjs = -17.8%</title>
   </rect>
-  <text x="300.97258416572856" y="325" text-anchor="end" font-size="10" fill="#333">-21%</text>
+  <text x="313.36532834941937" y="325" text-anchor="end" font-size="10" fill="#333">-18%</text>
   <text x="242" y="355" text-anchor="end">GraphQLRequest</text>
-  <rect x="325.5082401378448" y="332" width="111.43100253767734" height="14" fill="#e55137">
-    <title>GraphQLRequest: fork toBinary vs upstream = 113.4%</title>
+  <rect x="342.68717275440054" y="332" width="66.9276867005087" height="14" fill="#e55137">
+    <title>GraphQLRequest: fork toBinary vs upstream = 47.0%</title>
   </rect>
-  <text x="440.9392426755221" y="343" text-anchor="start" font-size="10" fill="#333">113%</text>
-  <rect x="257.5633252179224" y="356" width="67.94491491992241" height="14" fill="#6a8e7f">
-    <title>GraphQLRequest: fork toBinary vs protobufjs = -69.2%</title>
+  <text x="413.61485945490926" y="343" text-anchor="start" font-size="10" fill="#333">47%</text>
+  <rect x="250" y="356" width="92.68717275440054" height="14" fill="#6a8e7f">
+    <title>GraphQLRequest: fork toBinary vs protobufjs = -65.1%</title>
   </rect>
-  <text x="253.5633252179224" y="367" text-anchor="end" font-size="10" fill="#333">-69%</text>
+  <text x="246" y="367" text-anchor="end" font-size="10" fill="#333">-65%</text>
   <text x="242" y="397" text-anchor="end">GraphQLResponse</text>
-  <rect x="325.5082401378448" y="374" width="107.03095937774697" height="14" fill="#e55137">
-    <title>GraphQLResponse: fork toBinary vs upstream = 109.0%</title>
+  <rect x="342.68717275440054" y="374" width="157.28365736875926" height="14" fill="#e55137">
+    <title>GraphQLResponse: fork toBinary vs upstream = 110.4%</title>
   </rect>
-  <text x="436.53919951559175" y="385" text-anchor="start" font-size="10" fill="#333">109%</text>
-  <rect x="250" y="398" width="75.50824013784478" height="14" fill="#6a8e7f">
-    <title>GraphQLResponse: fork toBinary vs protobufjs = -76.9%</title>
+  <text x="503.97083012315977" y="385" text-anchor="start" font-size="10" fill="#333">110%</text>
+  <rect x="251.8843357669847" y="398" width="90.80283698741584" height="14" fill="#6a8e7f">
+    <title>GraphQLResponse: fork toBinary vs protobufjs = -63.7%</title>
   </rect>
-  <text x="246" y="409" text-anchor="end" font-size="10" fill="#333">-77%</text>
+  <text x="247.8843357669847" y="409" text-anchor="end" font-size="10" fill="#333">-64%</text>
   <text x="242" y="439" text-anchor="end">RpcRequest</text>
-  <rect x="325.5082401378448" y="416" width="311.90271870141754" height="14" fill="#e55137">
-    <title>RpcRequest: fork toBinary vs upstream = 317.5%</title>
+  <rect x="342.68717275440054" y="416" width="292.064731659197" height="14" fill="#e55137">
+    <title>RpcRequest: fork toBinary vs upstream = 205.0%</title>
   </rect>
-  <text x="641.4109588392623" y="427" text-anchor="start" font-size="10" fill="#333">318%</text>
-  <rect x="297.05653471293795" y="440" width="28.451705424906834" height="14" fill="#6a8e7f">
-    <title>RpcRequest: fork toBinary vs protobufjs = -29.0%</title>
+  <text x="638.7519044135975" y="427" text-anchor="start" font-size="10" fill="#333">205%</text>
+  <rect x="340.1525561082605" y="440" width="2.5346166461400306" height="14" fill="#6a8e7f">
+    <title>RpcRequest: fork toBinary vs protobufjs = -1.8%</title>
   </rect>
-  <text x="293.05653471293795" y="451" text-anchor="end" font-size="10" fill="#333">-29%</text>
+  <text x="336.1525561082605" y="451" text-anchor="end" font-size="10" fill="#333">-2%</text>
   <text x="242" y="481" text-anchor="end">RpcResponse</text>
-  <rect x="325.5082401378448" y="458" width="256.0315877514446" height="14" fill="#e55137">
-    <title>RpcResponse: fork toBinary vs upstream = 260.6%</title>
+  <rect x="342.68717275440054" y="458" width="344.3627495736656" height="14" fill="#e55137">
+    <title>RpcResponse: fork toBinary vs upstream = 241.8%</title>
   </rect>
-  <text x="585.5398278892894" y="469" text-anchor="start" font-size="10" fill="#333">261%</text>
-  <rect x="295.9988467930884" y="482" width="29.50939334475641" height="14" fill="#6a8e7f">
-    <title>RpcResponse: fork toBinary vs protobufjs = -30.0%</title>
+  <text x="691.0499223280661" y="469" text-anchor="start" font-size="10" fill="#333">242%</text>
+  <rect x="342.68717275440054" y="482" width="26.277230716543837" height="14" fill="#6a8e7f">
+    <title>RpcResponse: fork toBinary vs protobufjs = 18.4%</title>
   </rect>
-  <text x="291.9988467930884" y="493" text-anchor="end" font-size="10" fill="#333">-30%</text>
+  <text x="372.9644034709444" y="493" text-anchor="start" font-size="10" fill="#333">18%</text>
   <text x="242" y="523" text-anchor="end">StressMessage (depth=8, width=200)</text>
-  <rect x="325.5082401378448" y="500" width="401.79203777213854" height="14" fill="#e55137">
-    <title>StressMessage (depth=8, width=200): fork toBinary vs upstream = 409.0%</title>
+  <rect x="342.68717275440054" y="500" width="376.9122455892918" height="14" fill="#e55137">
+    <title>StressMessage (depth=8, width=200): fork toBinary vs upstream = 264.6%</title>
   </rect>
-  <text x="731.3002779099834" y="511" text-anchor="start" font-size="10" fill="#333">409%</text>
-  <rect x="296.23939183101385" y="524" width="29.268848306830957" height="14" fill="#6a8e7f">
-    <title>StressMessage (depth=8, width=200): fork toBinary vs protobufjs = -29.8%</title>
+  <text x="723.5994183436924" y="511" text-anchor="start" font-size="10" fill="#333">265%</text>
+  <rect x="320.8609897925996" y="524" width="21.82618296180095" height="14" fill="#6a8e7f">
+    <title>StressMessage (depth=8, width=200): fork toBinary vs protobufjs = -15.3%</title>
   </rect>
-  <text x="292.23939183101385" y="535" text-anchor="end" font-size="10" fill="#333">-30%</text>
+  <text x="316.8609897925996" y="535" text-anchor="end" font-size="10" fill="#333">-15%</text>
 </svg>

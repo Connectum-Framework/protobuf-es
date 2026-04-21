@@ -251,23 +251,65 @@ const readmePath = `${outDir}README.md`;
 let results: BenchmarkResult[];
 if (process.env.BENCH_REPORT_READ_ONLY === "1" && existsSync(resultsPath)) {
   // Re-render mode: useful while iterating on chart / table layout so the
-  // author does not pay the ~30s benchmark cost for each rendering tweak.
+  // author does not pay the benchmark cost for each rendering tweak.
   const raw = JSON.parse(readFileSync(resultsPath, "utf-8")) as {
     results: BenchmarkResult[];
   };
   results = raw.results;
   console.log(`Loaded ${results.length} results from ${resultsPath}`);
 } else {
-  console.log("Running benchmark matrix for report (this takes ~30s)...");
-  results = await runReportBench();
+  // Median-of-N runs to stabilize per-fixture numbers against host jitter.
+  // Single-run measurements on small/fast fixtures (SimpleMessage, RPC
+  // envelopes) easily vary by 2-8x across back-to-back runs on an
+  // unpinned host; medians cancel that out. Override via
+  // BENCH_REPORT_RUNS env var (default 5, min 1).
+  const runsEnv = Number.parseInt(process.env.BENCH_REPORT_RUNS ?? "5", 10);
+  const runs = Number.isFinite(runsEnv) && runsEnv > 0 ? runsEnv : 5;
+  console.log(
+    `Running benchmark matrix for report (${runs} runs × ~30s each, median aggregated)...`,
+  );
+  const runResults: BenchmarkResult[][] = [];
+  for (let i = 0; i < runs; i++) {
+    console.log(`  run ${i + 1}/${runs}`);
+    runResults.push(await runReportBench());
+  }
+  // Median per (fixture, encoder) pair. encodedSize is identical across
+  // runs for the same fixture/encoder, so first occurrence wins.
+  const keyed = new Map<string, { ops: number[]; encodedSize: number }>();
+  for (const run of runResults) {
+    for (const r of run) {
+      const key = `${r.fixture}::${r.encoder}`;
+      const bucket = keyed.get(key);
+      if (bucket) {
+        bucket.ops.push(r.opsPerSec);
+      } else {
+        keyed.set(key, { ops: [r.opsPerSec], encodedSize: r.encodedSize });
+      }
+    }
+  }
+  const firstRunOrder = runResults[0];
+  results = firstRunOrder.map((r) => {
+    const key = `${r.fixture}::${r.encoder}`;
+    const bucket = keyed.get(key);
+    const sorted = bucket ? [...bucket.ops].sort((a, b) => a - b) : [];
+    const median =
+      sorted.length === 0 ? 0 : sorted[Math.floor(sorted.length / 2)];
+    return {
+      fixture: r.fixture,
+      encoder: r.encoder,
+      opsPerSec: median,
+      encodedSize: bucket?.encodedSize ?? r.encodedSize,
+    };
+  });
   const payload = {
     node: process.version,
     platform: `${process.platform}/${process.arch}`,
     timestamp: new Date().toISOString(),
+    runs,
     results,
   };
   writeFileSync(resultsPath, `${JSON.stringify(payload, null, 2)}\n`);
-  console.log(`Wrote ${resultsPath}`);
+  console.log(`Wrote ${resultsPath} (median of ${runs} runs)`);
 }
 
 // Build outputs. The chart and table see identical inputs, so any
