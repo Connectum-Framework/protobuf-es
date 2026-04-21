@@ -173,16 +173,16 @@ of what main delivers today.
 
 | Fixture                            |  Bytes | upstream | toBinary (fork) | protobufjs | Best               |
 | ---------------------------------- | -----: | -------: | --------------: | ---------: | ------------------ |
-| SimpleMessage                      |     19 |    1.27M |           1.35M |      2.99M | protobufjs (2.21x) |
-| ExportTraceRequest (100 spans)     | 32,926 |      536 |           1,634 |      1,849 | protobufjs (1.13x) |
-| ExportMetricsRequest (50 series)   | 17,696 |      872 |           2,701 |      3,107 | protobufjs (1.15x) |
-| ExportLogsRequest (100 records)    | 21,319 |      910 |           2,973 |      3,094 | protobufjs (1.04x) |
-| K8sPodList (20 pods)               | 28,900 |      837 |           3,140 |      3,819 | protobufjs (1.22x) |
-| GraphQLRequest                     |    624 |  145,574 |         213,975 |    612,621 | protobufjs (2.86x) |
-| GraphQLResponse                    |  1,366 |  149,786 |         315,185 |    869,456 | protobufjs (2.76x) |
-| RpcRequest                         |    501 |  133,777 |         408,083 |    415,477 | protobufjs (1.02x) |
-| RpcResponse                        |    602 |  184,283 |         629,814 |    531,720 | toBinary (1.18x)   |
-| StressMessage (depth=8, width=200) | 12,868 |    2,873 |          10,476 |     12,371 | protobufjs (1.18x) |
+| SimpleMessage                      |     19 |  812,094 |         879,166 |      2.78M | protobufjs (3.16x) |
+| ExportTraceRequest (100 spans)     | 32,926 |      329 |           1,153 |      1,675 | protobufjs (1.45x) |
+| ExportMetricsRequest (50 series)   | 17,696 |      577 |           2,058 |      2,740 | protobufjs (1.33x) |
+| ExportLogsRequest (100 records)    | 21,319 |      578 |           2,010 |      2,868 | protobufjs (1.43x) |
+| K8sPodList (20 pods)               | 28,900 |      561 |           2,260 |      3,040 | protobufjs (1.35x) |
+| GraphQLRequest                     |    624 |  112,910 |         182,253 |    452,632 | protobufjs (2.48x) |
+| GraphQLResponse                    |  1,366 |  126,072 |         243,659 |    669,956 | protobufjs (2.75x) |
+| RpcRequest                         |    501 |  104,999 |         303,133 |    339,804 | protobufjs (1.12x) |
+| RpcResponse                        |    602 |  161,089 |         443,109 |    514,815 | protobufjs (1.16x) |
+| StressMessage (depth=8, width=200) | 12,868 |    1,794 |           7,744 |     12,854 | protobufjs (1.66x) |
 
 <!--BENCHMARK_TABLE_END-->
 
