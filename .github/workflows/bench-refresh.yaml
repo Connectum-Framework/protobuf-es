@@ -1,0 +1,134 @@
+name: bench-refresh
+
+# After a merge to main that may have affected bench numbers, regenerate
+# benchmarks/README.md's auto-generated table (between the
+# <!--BENCHMARK_TABLE_START/END--> markers) and the two SVG charts
+# (chart.svg, chart-delta.svg). The regenerated artefacts go out as a
+# sticky chore PR on branch chore/bench-refresh rather than a direct push
+# to main — main is protected and should only be touched by reviewed
+# commits, including doc refreshes like this one.
+#
+# Self-retrigger guard: the path filter includes only sources that
+# influence bench numbers. The PR itself changes README.md and *.svg,
+# neither of which is in the include list, so merging the refresh PR
+# does not loop the workflow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/protobuf/**"
+      - "benchmarks/src/**"
+      - "benchmarks/scripts/**"
+      - "benchmarks/proto/**"
+      - "benchmarks/package.json"
+      - ".github/workflows/bench-refresh.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  DO_NOT_TRACK: 1
+  NODE_VERSION: "22"
+
+concurrency:
+  group: bench-refresh
+  # Don't cancel in-flight refresh runs — every main merge should have a
+  # chance to produce its own numbers, otherwise a burst of merges would
+  # elide intermediate snapshots.
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Regenerate README table + charts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install
+        run: npm ci --ignore-scripts
+        env:
+          HUSKY: 0
+
+      - name: Build @bufbuild/protobuf
+        run: npx turbo run build --filter=@bufbuild/protobuf
+
+      - name: Generate benchmark code (proto + pbjs)
+        run: npx turbo run generate --filter=@bufbuild/protobuf-benchmarks
+
+      # bench:report honours BENCH_REPORT_RUNS (median-of-5 default). We
+      # pin to CPU 0 via taskset for the same reason run-matrix-ci.sh
+      # does — scheduler migration jitter on heterogeneous P/E-core
+      # runners is the dominant noise source after median aggregation.
+      - name: Regenerate README table + charts
+        working-directory: benchmarks
+        env:
+          BENCH_REPORT_RUNS: "5"
+        run: |
+          set -euo pipefail
+          if command -v taskset >/dev/null 2>&1; then
+            echo "cpu pinning: enabled (taskset -c 0)"
+            taskset -c 0 npm run bench:report
+          else
+            echo "cpu pinning: DISABLED (taskset not available)"
+            npm run bench:report
+          fi
+
+      - name: Detect changes
+        id: changes
+        run: |
+          set -euo pipefail
+          tracked=(benchmarks/README.md benchmarks/chart.svg benchmarks/chart-delta.svg)
+          if git diff --quiet -- "${tracked[@]}"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No README/chart changes — skipping PR."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat -- "${tracked[@]}"
+          fi
+
+      - name: Create or update refresh PR
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: |
+            chore(benchmarks): refresh README table and charts
+
+            Auto-regenerated from bench:report on main @${{ github.sha }}.
+          branch: chore/bench-refresh
+          base: main
+          delete-branch: true
+          title: "chore(benchmarks): refresh README table and charts"
+          body: |
+            Auto-regenerated benchmark table + `chart.svg` / `chart-delta.svg`
+            from `npm run bench:report -w @bufbuild/protobuf-benchmarks` on
+            main after merge of ${{ github.sha }}.
+
+            - Median of 5 runs per fixture.
+            - CPU 0 pinned via `taskset` on the workflow runner.
+            - Produced by `.github/workflows/bench-refresh.yaml`.
+
+            This PR is sticky on branch `chore/bench-refresh` — the
+            workflow force-updates it on subsequent main merges instead
+            of stacking PRs. Merge it whenever the delta looks reasonable
+            to publish the refreshed numbers into README on main.
+          labels: |
+            chore
+            benchmarks
+          add-paths: |
+            benchmarks/README.md
+            benchmarks/chart.svg
+            benchmarks/chart-delta.svg
