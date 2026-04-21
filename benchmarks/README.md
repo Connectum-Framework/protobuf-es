@@ -133,12 +133,8 @@ three encoders:
 - **`protobufjs`** — ahead-of-time codegen via pbjs static-module, included
   as a cross-library reference.
 
-The experimental L1+L2 schema-plan encoder (`toBinaryFast`) is intentionally
-not shown here — it lives on branch
-`archive/l1-l2-schema-plans-experimental` for future iteration (see the
-"Current state" note below). Numeric labels above each bar carry the
-ops/sec figure so the legend cross-references the table without requiring
-a second lookup.
+Numeric labels above each bar carry the ops/sec figure so the legend
+cross-references the table without requiring a second lookup.
 
 ![chart](./chart.svg)
 
@@ -154,20 +150,24 @@ reference.
 
 ### Current state
 
-Main ships `toBinary` only (L0 contiguous writer, PR #8). The
-experimental L1+L2 schema-plan work (`toBinaryFast`) was prototyped on
-branches `feat/l1-l2-schema-plans` and
-`feat/merge-l1-l2-into-tobinary` — merging it into the public `toBinary`
-broke three extension-related unit tests and six conformance cases (the
-plan walk does not cover extension encoding). That work is preserved on
-branch `archive/l1-l2-schema-plans-experimental` for future iteration
-and is intentionally absent from this chart and from the public API on
-main.
+> **Branch note.** This is the
+> `archive/l1-l2-schema-plans-experimental` branch: the L1 schema plan
+> and L2 specialized field writers are folded directly into the public
+> `toBinary` here. It is WIP — three extension-related unit tests and
+> six protobuf-conformance cases currently fail because the plan walker
+> does not cover extension encoding. Do not ship from this branch until
+> that gap is closed.
 
-The `toBinary` column here is this fork's L0-optimised writer, compared
-against upstream `@bufbuild/protobuf@latest` (the red column) which is
-the pre-L0 reflective baseline. That comparison is the honest measure
-of what main delivers today.
+`main` ships `toBinary` at L0 only (contiguous writer, PR #8). This
+branch extends the public encoder with L1+L2. The `toBinary` column in
+the chart is whichever variant lives on the branch you are currently
+reading — on `main`, the L0 writer; on this branch, the L0+L1+L2 path
+(once the chart is regenerated with a green test suite).
+
+The `toBinary` column is compared against upstream
+`@bufbuild/protobuf@latest` (the red column), which is the pre-L0
+reflective baseline. That comparison is the honest measure of the delta
+the fork has produced.
 
 <!--BENCHMARK_TABLE_START-->
 
@@ -211,8 +211,8 @@ pbjs static-module codegen wins on those because its generated encoder
 inlines the entire write without a single function-pointer indirection.
 
 Higher-level optimisations (L1 schema plans, L2 specialized field
-writers) were prototyped as `toBinaryFast` but removed from main — see
-"Archived work" below.
+writers) are folded into `toBinary` on this branch — see "Archived
+work" below for the current status and blocking gaps.
 
 ### Known-pathological case: `fromJsonString + toBinary`
 
@@ -349,20 +349,18 @@ The `.heapprofile` file is also directly openable in Chrome DevTools
 
 ## Archived work
 
-Earlier passes prototyped two higher-level optimisations on top of L0.
-Both were removed from main and preserved for future iteration:
-
 - **L1 (schema plan) + L2 (specialized field writers)** — compile each
   `DescMessage` into an opcode plan that pre-computes tag bytes and
-  field wire types, then walk the plan instead of the descriptor on each
-  encode. Prototyped as an opt-in `toBinaryFast` export; merging it into
-  the public `toBinary` broke three extension-related unit tests and
-  six conformance cases because the plan walk does not cover extension
-  encoding. Preserved on branch
-  [`archive/l1-l2-schema-plans-experimental`](../../../tree/archive/l1-l2-schema-plans-experimental).
+  field wire types, then walk the plan instead of the descriptor on
+  each encode. Present on this branch as part of the public `toBinary`.
+  Status: **WIP** — three extension-related unit tests and six
+  protobuf-conformance cases fail because the plan walker does not yet
+  emit extension-encoding ops. An earlier separate-export prototype
+  avoided the failing surface by not being exercised by those tests at
+  all; folding into `toBinary` is what surfaced the coverage gap.
 - **L3 (runtime monomorphization)** — observe shape of messages handed
   to the encoder, graduate frequently-seen shapes into specialised plan
   variants that skip field-presence checks. Draft PR showed a 4-variant
   cap with seal-on-breach; CI revealed a net regression on single-shape
   workloads once the observation/lookup overhead was added to the hot
-  path. Code also archived on the same branch.
+  path. Not present on this branch.

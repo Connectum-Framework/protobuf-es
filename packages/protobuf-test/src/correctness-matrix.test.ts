@@ -33,11 +33,12 @@
  *       assert re-encode(decode(encoderA(F))) is stable
  *
  * Encoder registry:
- *   Add new encoders to the ENCODERS array below as they land on main.
- *   Currently only `toBinary` ships on main (L0 contiguous writer). The
- *   experimental L1+L2 schema-plan encoder (`toBinaryFast`) lives on the
- *   `archive/l1-l2-schema-plans-experimental` branch for future iteration
- *   and is intentionally absent here.
+ *   Add new encoders to the ENCODERS array below as new variants land.
+ *   Currently only `toBinary` is public — the schema-plan interpreter
+ *   and specialized field writers are folded into it directly, not
+ *   surfaced as a separate entry point. Any future encoder variant
+ *   (e.g. a CSP-unsafe codegen path) must be added here so the parity
+ *   matrix catches regressions.
  */
 
 import { suite, test } from "node:test";
@@ -88,9 +89,8 @@ interface Fixture<Desc extends DescMessage> {
 
 const ENCODERS: readonly EncoderEntry[] = [
   { name: "toBinary", encode: (schema, message) => toBinary(schema, message) },
-  // Future additions (held on branch until they land on main):
-  //   { name: "toBinaryFast", encode: ... }       // archive/l1-l2-schema-plans-experimental
-  //   { name: "toBinarySchemaPlan", encode: ... }
+  // Future variants (e.g. a CSP-unsafe codegen encoder) should be added
+  // here so every fixture is validated against every encoder.
 ];
 
 // Fixtures — small but representative. Each covers one proto feature category.
