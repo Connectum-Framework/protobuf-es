@@ -291,9 +291,35 @@ export class BinaryWriter {
   }
   /**
    * Write a `string` value, length-delimited data converted to UTF-8 text.
+   *
+   * ASCII fast path: single-pass probe of the code units. If every char is
+   * ≤ 0x7F, writes the bytes directly without invoking `TextEncoder`.
+   * Non-ASCII falls back to the injected UTF-8 encoder — previous
+   * behaviour verbatim.
    */
   string(value: string): this {
-    let chunk = this.encodeUtf8(value);
+    if (typeof value === "string") {
+      const len = value.length;
+      let isAscii = true;
+      for (let i = 0; i < len; i++) {
+        if (value.charCodeAt(i) > 0x7f) {
+          isAscii = false;
+          break;
+        }
+      }
+      if (isAscii) {
+        this.uint32(len);
+        this.ensureCapacity(len);
+        const buf = this.buffer;
+        let p = this.pos;
+        for (let i = 0; i < len; i++) {
+          buf[p++] = value.charCodeAt(i);
+        }
+        this.pos = p;
+        return this;
+      }
+    }
+    const chunk = this.encodeUtf8(value);
     this.uint32(chunk.byteLength);
     return this.raw(chunk);
   }
