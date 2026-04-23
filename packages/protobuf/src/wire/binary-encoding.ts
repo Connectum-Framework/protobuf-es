@@ -108,6 +108,15 @@ export class BinaryWriter {
 
   private readonly initialSize = 128;
 
+  /**
+   * Set by `finish()` so the next write allocates a fresh backing buffer.
+   * Without this, a caller that reused the writer after `finish()` would see
+   * the subarray view clobbered by subsequent writes. Defers the reset
+   * allocation from `finish()` to the first reuse write, keeping the
+   * single-shot path (one encode per writer) free of an extra allocation.
+   */
+  private dirtyAfterFinish = false;
+
   constructor(
     private readonly encodeUtf8: (
       text: string,
@@ -120,6 +129,13 @@ export class BinaryWriter {
   }
 
   private ensureCapacity(size: number) {
+    if (this.dirtyAfterFinish) {
+      // The previous encode's output is still aliased through the subarray
+      // view we returned from finish(). Swap in a fresh buffer before we
+      // overwrite anything.
+      this.buffer = EMPTY_BUFFER;
+      this.dirtyAfterFinish = false;
+    }
     const required = this.pos + size;
     if (required > this.buffer.length) {
       let newLen = this.buffer.length || this.initialSize;
@@ -132,11 +148,16 @@ export class BinaryWriter {
 
   /**
    * Return all bytes written and reset this writer.
+   *
+   * Returns a subarray view over the internal buffer (O(1)). The writer
+   * keeps the backing buffer but marks itself dirty — the next write will
+   * allocate a fresh buffer so the returned view is not overwritten.
    */
   finish(): Uint8Array<ArrayBuffer> {
-    const result = this.buffer.slice(0, this.pos);
+    const result = this.buffer.subarray(0, this.pos) as Uint8Array<ArrayBuffer>;
     this.pos = 0;
     this.stackPos = [];
+    this.dirtyAfterFinish = true;
     return result;
   }
   /**
