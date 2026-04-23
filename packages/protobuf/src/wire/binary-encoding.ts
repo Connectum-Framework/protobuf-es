@@ -117,6 +117,14 @@ export class BinaryWriter {
    */
   private dirtyAfterFinish = false;
 
+  /**
+   * Cached DataView over `buffer`. Rebuilt each time the buffer is swapped
+   * (grow, finish-dirty reset). Lets fixed32/sfixed32/float/double/fixed64/
+   * sfixed64 avoid constructing a fresh DataView per call — a significant
+   * cost on scalar-heavy payloads (OTel timestamps, metrics doubles).
+   */
+  private view: DataView;
+
   constructor(
     private readonly encodeUtf8: (
       text: string,
@@ -126,6 +134,7 @@ export class BinaryWriter {
     // request) would otherwise pay for a full initialSize zeroed buffer.
     this.buffer = EMPTY_BUFFER;
     this.pos = 0;
+    this.view = EMPTY_DATAVIEW;
   }
 
   private ensureCapacity(size: number) {
@@ -134,6 +143,7 @@ export class BinaryWriter {
       // view we returned from finish(). Swap in a fresh buffer before we
       // overwrite anything.
       this.buffer = EMPTY_BUFFER;
+      this.view = EMPTY_DATAVIEW;
       this.dirtyAfterFinish = false;
     }
     const required = this.pos + size;
@@ -143,6 +153,7 @@ export class BinaryWriter {
       const newBuf = new Uint8Array(newLen);
       if (this.pos > 0) newBuf.set(this.buffer.subarray(0, this.pos));
       this.buffer = newBuf;
+      this.view = new DataView(newBuf.buffer, newBuf.byteOffset, newBuf.byteLength);
     }
   }
 
@@ -281,11 +292,7 @@ export class BinaryWriter {
   float(value: number): this {
     assertFloat32(value);
     this.ensureCapacity(4);
-    new DataView(
-      this.buffer.buffer,
-      this.buffer.byteOffset,
-      this.buffer.byteLength,
-    ).setFloat32(this.pos, value, true);
+    this.view.setFloat32(this.pos, value, true);
     this.pos += 4;
     return this;
   }
@@ -294,11 +301,7 @@ export class BinaryWriter {
    */
   double(value: number): this {
     this.ensureCapacity(8);
-    new DataView(
-      this.buffer.buffer,
-      this.buffer.byteOffset,
-      this.buffer.byteLength,
-    ).setFloat64(this.pos, value, true);
+    this.view.setFloat64(this.pos, value, true);
     this.pos += 8;
     return this;
   }
@@ -308,11 +311,7 @@ export class BinaryWriter {
   fixed32(value: number): this {
     assertUInt32(value);
     this.ensureCapacity(4);
-    new DataView(
-      this.buffer.buffer,
-      this.buffer.byteOffset,
-      this.buffer.byteLength,
-    ).setUint32(this.pos, value, true);
+    this.view.setUint32(this.pos, value, true);
     this.pos += 4;
     return this;
   }
@@ -322,11 +321,7 @@ export class BinaryWriter {
   sfixed32(value: number): this {
     assertInt32(value);
     this.ensureCapacity(4);
-    new DataView(
-      this.buffer.buffer,
-      this.buffer.byteOffset,
-      this.buffer.byteLength,
-    ).setInt32(this.pos, value, true);
+    this.view.setInt32(this.pos, value, true);
     this.pos += 4;
     return this;
   }
@@ -344,13 +339,8 @@ export class BinaryWriter {
   sfixed64(value: string | number | bigint): this {
     const tc = protoInt64.enc(value);
     this.ensureCapacity(8);
-    const view = new DataView(
-      this.buffer.buffer,
-      this.buffer.byteOffset,
-      this.buffer.byteLength,
-    );
-    view.setInt32(this.pos, tc.lo, true);
-    view.setInt32(this.pos + 4, tc.hi, true);
+    this.view.setInt32(this.pos, tc.lo, true);
+    this.view.setInt32(this.pos + 4, tc.hi, true);
     this.pos += 8;
     return this;
   }
@@ -360,13 +350,8 @@ export class BinaryWriter {
   fixed64(value: string | number | bigint): this {
     const tc = protoInt64.uEnc(value);
     this.ensureCapacity(8);
-    const view = new DataView(
-      this.buffer.buffer,
-      this.buffer.byteOffset,
-      this.buffer.byteLength,
-    );
-    view.setInt32(this.pos, tc.lo, true);
-    view.setInt32(this.pos + 4, tc.hi, true);
+    this.view.setInt32(this.pos, tc.lo, true);
+    this.view.setInt32(this.pos + 4, tc.hi, true);
     this.pos += 8;
     return this;
   }
@@ -450,6 +435,12 @@ export class BinaryWriter {
  * writer is only used for a tiny message (or not used at all).
  */
 const EMPTY_BUFFER = new Uint8Array(0) as Uint8Array<ArrayBuffer>;
+
+/**
+ * Shared empty DataView used alongside `EMPTY_BUFFER` before the first
+ * write. Paired with the cached-view optimisation on the writer.
+ */
+const EMPTY_DATAVIEW = new DataView(EMPTY_BUFFER.buffer);
 
 /**
  * Number of bytes needed to encode `value` as an unsigned 32-bit varint.
