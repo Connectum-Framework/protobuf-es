@@ -37,23 +37,6 @@ for i in $(seq 1 "$BENCH_RUNS"); do
   npx tsx src/bench.ts --json "${filters[@]}" > "/out/run-$i.json"
 done
 
-# Median over runs, per case. The median, not the mean: a single pass hit by
-# scheduler noise must not move the reported figure.
-jq -s '
-  (.[0].node) as $node
-  | [.[].rows[]] | group_by(.name)
-  | map({
-      name: .[0].name,
-      error: (map(.error) | map(select(. != null)) | first),
-      opsPerSec: (map(.opsPerSec) | map(select(. != null)) | sort
-                  | if length == 0 then null else .[(length - 1) / 2 | floor] end),
-      opsPerSecMin: (map(.opsPerSec) | map(select(. != null)) | min),
-      opsPerSecMax: (map(.opsPerSec) | map(select(. != null)) | max),
-      runs: length
-    })
-  | {sha: env.BENCH_SHA, node: $node, rows: .}
-' /out/run-*.json > /out/summary.json
-
 read -r -a profiles <<< "${BENCH_PROFILES:-}"
 for name in "${profiles[@]}"; do
   safe=${name//\//_}

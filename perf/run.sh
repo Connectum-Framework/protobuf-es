@@ -71,4 +71,22 @@ docker run --rm \
   "$image" \
   bash "$repo_root/perf/in-container.sh"
 
+# Median over runs, per case. The median, not the mean: a single pass hit by
+# scheduler noise must not move the reported figure. Computed on the host
+# because the Node.js image has no jq.
+jq -s --arg sha "$sha" '
+  (.[0].node) as $node
+  | [.[].rows[]] | group_by(.name)
+  | map({
+      name: .[0].name,
+      error: (map(.error) | map(select(. != null)) | first),
+      opsPerSec: (map(.opsPerSec) | map(select(. != null)) | sort
+                  | if length == 0 then null else .[(length - 1) / 2 | floor] end),
+      opsPerSecMin: (map(.opsPerSec) | map(select(. != null)) | min),
+      opsPerSecMax: (map(.opsPerSec) | map(select(. != null)) | max),
+      runs: length
+    })
+  | {sha: $sha, node: $node, rows: .}
+' "$out"/run-*.json > "$out/summary.json"
+
 echo "results: $out"
