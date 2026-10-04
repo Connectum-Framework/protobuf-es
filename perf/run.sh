@@ -13,7 +13,10 @@ USAGE: perf/run.sh --base <ref> [--head <ref>] [options]
                   same revision as --base gives an A/A run, which measures the
                   noise floor
   --harness REF   revision the benchmark code comes from (default: HEAD)
-  --passes N      fresh-process passes per side (default 10)
+  --passes N      fresh-process passes per side (default 30). With the exact
+                  sign test, 10 pairs need 9 wins to reach p < 0.05; 30 pairs
+                  resolve 3-5 % effects when the pair noise is <= 4 %. One
+                  extra warm-up pair always runs first and is discarded
   --realistic     add the production-shaped fixtures (BENCH_REALISTIC=1)
   --filter RE     only cases matching RE (passed to bench.ts, may repeat)
   --profile CASE  also record a CPU profile of CASE per side (may repeat)
@@ -25,7 +28,7 @@ USAGE: perf/run.sh --base <ref> [--head <ref>] [options]
 EOF
 }
 
-base= head= harness=HEAD passes=10 cpu=2 cooldown=60 wait=1
+base= head= harness=HEAD passes=30 cpu=2 cooldown=60 wait=1 sampler_cpu=12
 image=node:24.21.0 label= realistic=0
 filters=() profiles=()
 while [[ $# -gt 0 ]]; do
@@ -54,7 +57,10 @@ repo_root=$(git rev-parse --show-toplevel)
 git_common=$(cd "$repo_root" && cd "$(git rev-parse --git-common-dir)" && pwd)
 resolve() { git -C "$repo_root" rev-parse --verify "$1^{commit}"; }
 base_sha=$(resolve "$base")
-head_sha=$([[ -n $head ]] && resolve "$head" || true)
+# A mistyped --head must fail here, not silently degrade the A/B into a
+# single-side run.
+head_sha=
+if [[ -n $head ]]; then head_sha=$(resolve "$head"); fi
 harness_sha=$(resolve "$harness")
 
 # The hyperthread sibling shares the core's execution units and caches with
@@ -71,16 +77,45 @@ if [[ -e $out ]]; then
 fi
 mkdir -p "$out" "$cache"
 
+cpufreq=/sys/devices/system/cpu/cpu$cpu/cpufreq
 jq -n --arg base "$base_sha" --arg head "$head_sha" --arg harness "$harness_sha" \
-  --arg image "$image" --arg cpus "$cpus" --argjson passes "$passes" \
-  --argjson realistic "$realistic" --arg filters "${filters[*]:-}" \
+  --arg image "$image" \
+  --arg digest "$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || echo unknown)" \
+  --arg cpus "$cpus" --argjson passes "$passes" --argjson cooldown "$cooldown" \
+  --argjson wait "$wait" --argjson realistic "$realistic" \
+  --arg filters "${filters[*]:-}" --arg profiles "${profiles[*]:-}" \
+  --arg model "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ //')" \
+  --arg kernel "$(uname -r)" \
+  --arg governor "$(cat "$cpufreq/scaling_governor")" \
+  --arg epp "$(cat "$cpufreq/energy_performance_preference" 2>/dev/null || echo n/a)" \
+  --arg no_turbo "$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo n/a)" \
   '{base: $base, head: (if $head == "" then null else $head end),
-    harness: $harness, image: $image, cpus: $cpus, passes: $passes,
-    realistic: ($realistic == 1), filters: $filters}' > "$out/meta.json"
+    harness: $harness, image: $image, imageDigest: $digest, cpus: $cpus,
+    passes: $passes, warmupPairs: 1, cooldown: $cooldown, waitedForIdle: ($wait == 1),
+    realistic: ($realistic == 1), filters: $filters, profiles: $profiles,
+    host: {cpu: $model, kernel: $kernel, governor: $governor, epp: $epp,
+           noTurbo: $no_turbo}}' > "$out/meta.json"
 
 if [[ $wait -eq 1 ]]; then
   CPUS="$cpus" "$repo_root/perf/wait-idle.sh" 3600 | tee "$out/wait-idle.log"
 fi
+
+# Frequency of the benchmark core, sampled from the host every 250 ms on a
+# CPU outside the benchmark core, so sampling does not disturb what it
+# observes. Two readings per pass (env.log) miss drops inside a pass; this
+# trace does not. Stopped on any exit.
+read -r -a watched <<< "$cpus"
+taskset -c "$sampler_cpu" bash -c '
+  while :; do
+    line=$(date +%s.%N)
+    for c in "$@"; do
+      line+=" cpu$c=$(cat /sys/devices/system/cpu/cpu$c/cpufreq/scaling_cur_freq)"
+    done
+    echo "$line"
+    sleep 0.25
+  done' sampler "${watched[@]}" > "$out/freq.log" &
+sampler_pid=$!
+trap 'kill "$sampler_pid" 2>/dev/null || true' EXIT
 
 docker run --rm \
   --cpuset-cpus="$cpu" \

@@ -18,8 +18,20 @@ Docker (`node:24.21.0` by default), pinned to one CPU:
   production-shaped fixtures (OTel traces/metrics/logs, Kubernetes pods,
   GraphQL, RPC, stress), which also changes the JIT state the upstream cases run
   under, so the two corpora are never mixed in one comparison.
-- Before the first pass it waits for an idle host (`perf/wait-idle.sh`,
-  checked hourly), then rests `--cooldown` seconds after the build.
+- Before the build it waits for an idle host (`perf/wait-idle.sh`, checked
+  hourly): the pinned CPU and its hyperthread sibling must be idle, not just
+  the machine on average. After the build it rests `--cooldown` seconds, then
+  runs one warm-up pair that is discarded: on this 15 W laptop the rest
+  refills the turbo budget and the first pass burns it down, so the first pair
+  would run at a different frequency than the rest.
+- A library revision whose `packages/protobuf/package.json` differs from the
+  harness's is refused: the harness lockfile would not describe it.
+- Library changes that alter code generation output fail the generated-code
+  check on side B; such changes cannot be compared on this harness.
+- `--filter` changes which cases run in the process, and with them the JIT
+  state; filtered numbers are comparable only with runs using the same filter.
+- CPU profiles show where time goes, not how much: profile runs are neither
+  interleaved nor repeated, and their ops/s line is not a measurement.
 
 ## Usage
 
@@ -40,16 +52,26 @@ perf/run.sh --base upstream/main --head my-branch --realistic --label my-change
 
 | File | Content |
 |---|---|
-| `meta.json` | resolved SHAs, image, CPUs, passes, corpus |
-| `a/run-<k>.json`, `b/run-<k>.json` | one pass: per case mean and p50 ops/s |
+| `meta.json` | resolved SHAs, image and its digest, CPUs, passes, cooldown, corpus, host CPU model, kernel, governor, EPP, turbo |
+| `<side>/run-NNN.json` | one pass: per case mean and p50 ops/s; `run-NNN.err` its stderr |
+| `<side>/warmup.json` | the discarded warm-up pass |
+| `<side>/lib.txt` | what the benchmark resolved: link target, version, sha256 of the built `dist` (identical for A/A, different for A/B) |
+| `<side>/build.log` | install, build, codegen, generated-code check, typecheck |
 | `order.log` | which side ran first in each pair |
 | `env.log` | frequency and `/proc/stat` line of the pinned CPU and its sibling, before and after each pass |
-| `a/cpuprof/<case>/` | `.cpuprofile` files (open in speedscope) |
+| `freq.log` | frequency of the pinned CPU and its sibling every 250 ms, sampled from the host |
+| `<side>/cpuprof/<case>/` | `.cpuprofile` files (open in speedscope) |
 | `summary.json`, `report.md` | aggregate, see below |
 
 ## Reading the report
 
 Decisions use the median latency (p50): per-sample latency is heavy-tailed.
-For an A/B, each pair gives a ratio B/A; the report shows the median ratio,
-how many pairs B won, and an exact two-sided sign-test p-value. An effect is
-accepted only if it is outside the band an A/A run shows for the same case.
+For an A/B, passes are paired by file name; each pair gives a ratio B/A. The
+report shows the median ratio, how many non-tied pairs B won, and an exact
+two-sided sign-test p-value (with 10 pairs, 9 wins are needed for p < 0.05).
+An effect is accepted only if it is outside the band an A/A run shows for the
+same case. With some fifty cases per report, a few will cross p < 0.05 by
+chance alone; a single significant case is a lead to replicate, not a result.
+
+For sub-microsecond cases each sample also contains tinybench's fixed timing
+overhead, on both sides, which shrinks the visible ratio slightly.
