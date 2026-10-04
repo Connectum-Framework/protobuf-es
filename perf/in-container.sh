@@ -4,8 +4,12 @@
 set -euo pipefail
 
 git config --global --add safe.directory '*'
+# The measured repository is the mounted worktree, the working directory at
+# start. Every git call below names it explicitly, because /work gets its own
+# empty .git further down.
+src_repo=$PWD
 
-git archive "$BENCH_SHA" | tar -x -C /work
+git -C "$src_repo" archive "$BENCH_SHA" | tar -x -C /work
 cd /work
 # The license-header step of `npm run generate` locates the repository root
 # with `git rev-parse --show-toplevel`; an archive extract has no .git.
@@ -20,7 +24,7 @@ cd packages/protobuf-bench
 # Generated code is regenerated from the committed protos and must match the
 # committed copy; a mismatch means the measured tree is not what was reviewed.
 npm run generate > /out/generate.log 2>&1
-git archive "$BENCH_SHA" packages/protobuf-bench/src/gen | tar -x -C /tmp
+git -C "$src_repo" archive "$BENCH_SHA" packages/protobuf-bench/src/gen | tar -x -C /tmp
 if ! diff -r /tmp/packages/protobuf-bench/src/gen src/gen > /out/gen-drift.diff; then
   echo "generated code differs from the committed copy, see gen-drift.diff" >&2
   cp -r src/gen /out/gen
