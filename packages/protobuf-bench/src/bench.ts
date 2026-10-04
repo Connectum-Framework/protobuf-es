@@ -81,10 +81,15 @@ if (values.json) {
           result.state === "errored" ? result.error.message : result.state,
       };
     }
+    // Both the mean (what the table shows, comparable with upstream's
+    // reports) and the median: per-sample latency is heavy-tailed here
+    // (preemption, GC), so decisions are taken on the median.
+    const { mean, p50 } = result.latency;
     return {
       name: task.name,
-      nsPerOp: (result.latency.mean * 1e6) / ops,
-      opsPerSec: (ops * 1000) / result.latency.mean,
+      nsPerOp: (mean * 1e6) / ops,
+      opsPerSec: (ops * 1000) / mean,
+      p50OpsPerSec: p50 === undefined ? null : (ops * 1000) / p50,
       rme: result.latency.rme,
       samples: result.latency.samplesCount,
     };
