@@ -7,6 +7,9 @@ git config --global --add safe.directory '*'
 
 git archive "$BENCH_SHA" | tar -x -C /work
 cd /work
+# The license-header step of `npm run generate` locates the repository root
+# with `git rev-parse --show-toplevel`; an archive extract has no .git.
+git init -q
 
 npm ci --no-audit --no-fund --loglevel=error > /out/npm-ci.log 2>&1
 npx turbo run build \
