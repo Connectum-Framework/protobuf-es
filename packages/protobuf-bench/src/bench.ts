@@ -35,10 +35,15 @@ OR'd together; with no arguments, the whole corpus runs.
 
 Options:
   -h, --help   Print this help and exit.
+  --json       Print one JSON document instead of the table, so separate runs
+               can be aggregated and compared by tooling.
 `;
 
 const { values, positionals } = parseArgs({
-  options: { help: { type: "boolean", short: "h" } },
+  options: {
+    help: { type: "boolean", short: "h" },
+    json: { type: "boolean" },
+  },
   allowPositionals: true,
 });
 if (values.help) {
@@ -61,6 +66,32 @@ for (const [name, { run }] of selected) {
 }
 
 bench.runSync();
+
+if (values.json) {
+  // Per-operation figures, the same ones the table shows. A case that errored
+  // is reported with its message instead of numbers, so a broken fixture is
+  // visible in the aggregate rather than silently missing from it.
+  const rows = bench.tasks.map((task) => {
+    const ops = cases[task.name].ops;
+    const result = task.result;
+    if (!("latency" in result)) {
+      return {
+        name: task.name,
+        error:
+          result.state === "errored" ? result.error.message : result.state,
+      };
+    }
+    return {
+      name: task.name,
+      nsPerOp: (result.latency.mean * 1e6) / ops,
+      opsPerSec: (ops * 1000) / result.latency.mean,
+      rme: result.latency.rme,
+      samples: result.latency.samplesCount,
+    };
+  });
+  console.log(JSON.stringify({ node: process.version, rows }));
+  process.exit(0);
+}
 
 console.log(`@bufbuild/protobuf, ${process.version}`);
 console.table(
