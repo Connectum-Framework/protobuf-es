@@ -143,7 +143,10 @@ if [[ $wait -eq 1 ]]; then
   if [[ $isolated -eq 1 ]]; then
     # Nothing but kernel threads may run on the reserved core, so the rest of
     # the machine is allowed to be busy; only the reserved CPUs are checked.
-    BUSY_MAX=101 LOAD_MAX=100000 CPUS="$cpus" "$repo_root/perf/wait-idle.sh" 3600 | tee "$out/wait-idle.log"
+    # Softirq time on the reserved CPUs is not counted either: see
+    # IGNORE_SOFTIRQ in wait-idle.sh.
+    BUSY_MAX=101 LOAD_MAX=100000 IGNORE_SOFTIRQ=1 CPUS="$cpus" \
+      "$repo_root/perf/wait-idle.sh" 3600 | tee "$out/wait-idle.log"
   else
     CPUS="$cpus" "$repo_root/perf/wait-idle.sh" 3600 | tee "$out/wait-idle.log"
   fi

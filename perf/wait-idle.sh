@@ -29,6 +29,16 @@ busy_between() {
     total=$((total + b[i] - a[i]))
   done
   idle=$((b[4] - a[4] + b[5] - a[5]))
+  # With IGNORE_SOFTIRQ=1, softirq time counts as idle. On a reserved core
+  # (perf/isolate.sh) no foreign task can run, yet an idle CPU still serves
+  # softirqs for the rest of the system: measured on this machine at load ~29,
+  # CPU 2 spent ~6.7 % in softirq, nearly all SCHED (~389/s, scheduler load
+  # balancing) and RCU, with no user time. That work belongs to the CPU being
+  # idle, so it says nothing about whether a benchmark would be disturbed; the
+  # softirq time during the passes themselves is recorded in env.log.
+  if [[ ${IGNORE_SOFTIRQ:-0} == 1 ]]; then
+    idle=$((idle + b[7] - a[7]))
+  fi
   if [[ $total -eq 0 ]]; then echo 0; else echo $(((total - idle) * 100 / total)); fi
 }
 
