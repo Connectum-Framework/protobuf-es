@@ -68,7 +68,14 @@ perf/run.sh --base upstream/main --label baseline --profile toBinary/general
 perf/run.sh --base upstream/main --head my-branch --realistic --label my-change
 ```
 
-`perf/report.sh <dir>` re-aggregates an existing result directory.
+`perf/report.sh <dir>` re-aggregates an existing result directory. With
+`MAX_LOW_FREQ_PCT=N` it drops every pair in which a pass spent more than N %
+of its time below the pinned frequency (from `freq.log`), and writes
+`summary-freqN.json` / `report-freqN.md` next to the unfiltered files.
+`pass-freq.tsv` lists that share and the mean frequency for every pass.
+
+`perf/profile-top.sh [-n N] <dir|file>...` lists the functions with the most
+self time in `.cpuprofile` files; locations refer to `<side>/dist/`.
 
 ## Output (`.tmp/perf/<label>/`)
 
@@ -78,6 +85,7 @@ perf/run.sh --base upstream/main --head my-branch --realistic --label my-change
 | `<side>/run-NNN.json` | one pass: per case mean and p50 ops/s; `run-NNN.err` its stderr |
 | `<side>/warmup.json` | the discarded warm-up pass |
 | `<side>/lib.txt` | what the benchmark resolved: link target, version, sha256 of the built `dist` (identical for A/A, different for A/B) |
+| `<side>/dist/` | the built library; CPU profile lines refer to these files |
 | `<side>/build.log` | install, build, codegen, generated-code check, typecheck |
 | `container-cpuset.txt` | CPUs the container could actually run on; `run.sh` rejects the run unless it is exactly the pinned CPU |
 | `order.log` | which side ran first in each pair |

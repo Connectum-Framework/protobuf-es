@@ -70,6 +70,9 @@ identify() {
     echo "dist_sha256=$(cd packages/protobuf/dist && find . -type f | LC_ALL=C sort \
       | xargs sha256sum | sha256sum | cut -d' ' -f1)"
   ) > "/out/$side/lib.txt"
+  # CPU profiles point at lines of the built JavaScript, and the build tree is
+  # deleted on exit; keeping the output makes those lines readable later.
+  cp -r "$dir/packages/protobuf/dist" "/out/$side/dist"
 }
 
 # One line per sample of the benchmark CPU and its hyperthread sibling, so a

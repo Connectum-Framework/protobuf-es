@@ -47,6 +47,43 @@ by_pass a > "$out/a/passes.json"
 
 lib_of() { [[ -f $out/$1/lib.txt ]] && grep '^dist_sha256=' "$out/$1/lib.txt" | cut -d= -f2 || echo unknown; }
 
+# Per pass: the share of 250 ms frequency samples of the pinned CPU that fell
+# below 98 % of the pinned frequency, and the mean frequency. A pinned minimum
+# is a request, not a guarantee: on this 15 W part, load on the other cores
+# eats the package power budget and drags the reserved core below it.
+pinned_khz=$(jq -r 'if .host.scalingMinKhz == .host.scalingMaxKhz then .host.scalingMinKhz else "" end' "$out/meta.json")
+pinned_cpu=$(jq -r '.cpus | split(" ")[0]' "$out/meta.json")
+: > "$out/pass-freq.tsv"
+if [[ -n $pinned_khz && -f $out/freq.log && -f $out/env.log ]]; then
+  awk -v cpu="cpu$pinned_cpu" -v floor="$((pinned_khz * 98 / 100))" '
+    NR == FNR {
+      if ($4 == cpu) { if ($2 == "before") start[$3] = $1; else end_[$3] = $1 }
+      next
+    }
+    {
+      for (i = 2; i <= NF; i++) if (index($i, cpu "=") == 1) { v = substr($i, length(cpu) + 2) }
+      for (p in start) if ($1 >= start[p] && $1 <= end_[p]) { n[p]++; sum[p] += v; if (v < floor) low[p]++ }
+    }
+    END { for (p in n) printf "%s\t%.2f\t%.0f\n", p, 100 * low[p] / n[p], sum[p] / n[p] / 1000 }
+  ' "$out/env.log" "$out/freq.log" | LC_ALL=C sort > "$out/pass-freq.tsv"
+fi
+
+# With MAX_LOW_FREQ_PCT set, a pair is dropped when either of its passes spent
+# more than that share of its time below the pinned frequency; both passes go,
+# since a pair is only meaningful when both ran under the same conditions.
+rejected='[]'
+# A filtered aggregate is written next to the unfiltered one, never over it.
+summary_name=summary.json report_name=report.md
+if [[ -n ${MAX_LOW_FREQ_PCT:-} ]]; then
+  summary_name=summary-freq${MAX_LOW_FREQ_PCT}.json report_name=report-freq${MAX_LOW_FREQ_PCT}.md
+  if [[ ! -s $out/pass-freq.tsv ]]; then
+    echo "MAX_LOW_FREQ_PCT needs a pinned frequency and freq.log/env.log" >&2
+    exit 1
+  fi
+  rejected=$(awk -v max="$MAX_LOW_FREQ_PCT" '$2 > max { split($1, s, "/"); print s[2] }' "$out/pass-freq.tsv" \
+    | { grep '^run-' || true; } | LC_ALL=C sort -u | jq -R . | jq -s .)
+fi
+
 jq -n '
   def median: sort | if length == 0 then null
     else (length) as $n | if $n % 2 == 1 then .[($n - 1) / 2]
@@ -72,13 +109,21 @@ jq -n '
 
   def p50($rows; $name): [$rows[] | select(.name == $name) | .p50OpsPerSec][0];
 
+  # Sample standard deviation of ln(ratio): the pair noise, which decides the
+  # smallest effect a given number of pairs can resolve.
+  def sdlog: map(log) | length as $n | if $n < 2 then null else
+    (add / $n) as $mu | (map((. - $mu) * (. - $mu)) | add / ($n - 1) | sqrt) end;
+
   $meta[0] as $m
-  | $pa[0] as $a
-  | ($pb[0] // null) as $b
+  | ($pa[0] | with_entries(select(.key as $k | $rejected | index($k) | not))) as $a
+  | (($pb[0] // null) | if . == null then null
+      else with_entries(select(.key as $k | $rejected | index($k) | not)) end) as $b
   | side($a) as $A
   | (if $b == null then null else side($b) end) as $B
   | {
       meta: $m,
+      rejectedPairs: $rejected,
+      maxLowFreqPct: (if $maxLow == "" then null else ($maxLow | tonumber) end),
       lib: {a: $libA, b: (if $b == null then null else $libB end),
             identical: (if $b == null then null else $libA == $libB end)},
       a: $A,
@@ -94,7 +139,7 @@ jq -n '
               | ($r | map(select(. > 1)) | length) as $w
               | ($r | map(select(. != 1)) | length) as $n
               | {ratio: ($r | median), wins: $w, pairs: ($r | length),
-                 ties: (($r | length) - $n), p: sign_p($w; $n)})
+                 ties: (($r | length) - $n), p: sign_p($w; $n), sdLog: ($r | sdlog)})
           }) | from_entries
         end)
     }
@@ -102,7 +147,8 @@ jq -n '
   --slurpfile pa "$out/a/passes.json" \
   --slurpfile pb <([[ -n $b_passes ]] && cat "$out/b/passes.json" || true) \
   --arg libA "$(lib_of a)" --arg libB "$(lib_of b)" \
-  > "$out/summary.json"
+  --argjson rejected "$rejected" --arg maxLow "${MAX_LOW_FREQ_PCT:-}" \
+  > "$out/$summary_name"
 jq -r '
   def r0: if . == null then "–" else (. * 1 | round | tostring) end;
   def pct: if . == null then "–" else ((. - 1) * 1000 | round / 10 | tostring) + " %" end;
@@ -112,17 +158,19 @@ jq -r '
   "- head: `\(.meta.head // "–")`",
   "- harness: `\(.meta.harness)`, image `\(.meta.image)`, CPUs \(.meta.cpus), passes \(.meta.passes) (+\(.meta.warmupPairs // 0) warm-up), cooldown \(.meta.cooldown // "?") s, realistic \(.meta.realistic)",
   "- built library dist sha256: A `\(.lib.a)`" + (if .lib.b == null then "" else ", B `\(.lib.b)` — " + (if .lib.identical then "identical (A/A)" else "different" end) end),
+  (if .maxLowFreqPct == null then "- all pairs used"
+   else "- pairs dropped (a pass > \(.maxLowFreqPct) % of its time below the pinned frequency): \(.rejectedPairs | length) of \(.meta.passes)" end),
   "",
   if .ab == null then
     "| case | p50 ops/s (median) | min | max | mean ops/s |",
     "|---|---:|---:|---:|---:|",
     (.a | to_entries[] | "| \(.key) | \(.value.p50 | r0) | \(.value.p50Min | r0) | \(.value.p50Max | r0) | \(.value.mean | r0) |")
   else
-    "| case | A p50 ops/s | B p50 ops/s | B/A (median of pairs) | B wins / non-tied pairs | sign-test p |",
-    "|---|---:|---:|---:|---:|---:|",
+    "| case | A p50 ops/s | B p50 ops/s | B/A (median of pairs) | pair noise (sd of ln B/A) | B wins / non-tied pairs | sign-test p |",
+    "|---|---:|---:|---:|---:|---:|---:|",
     (. as $s | .ab | to_entries[]
-      | "| \(.key) | \($s.a[.key].p50 | r0) | \($s.b[.key].p50 | r0) | \(.value.ratio | pct) | \(.value.wins)/\(.value.pairs - .value.ties) | \(.value.p | p3) |")
+      | "| \(.key) | \($s.a[.key].p50 | r0) | \($s.b[.key].p50 | r0) | \(.value.ratio | pct) | \(if .value.sdLog == null then "–" else (.value.sdLog * 1000 | round / 10 | tostring) + " %" end) | \(.value.wins)/\(.value.pairs - .value.ties) | \(.value.p | p3) |")
   end
-' "$out/summary.json" > "$out/report.md"
+' "$out/$summary_name" > "$out/$report_name"
 
-cat "$out/report.md"
+cat "$out/$report_name"
