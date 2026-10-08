@@ -9,19 +9,26 @@
 # single-core load. Both move results by more than the effects being measured.
 #
 # How: with the systemd cgroup driver Docker places containers under
-# system.slice, so CPUs 2-3 are taken away from user.slice and system.slice
-# (everything users and services run, including other containers) and given
-# to pbbench.slice alone; perf/run.sh --isolated starts the benchmark container
-# there. All settings are --runtime: they live under /run and vanish on reboot.
-# Kernel threads and interrupts are not covered by cgroups and may still run
-# on CPUs 2-3; perf/run.sh records per-pass CPU time to show them.
-set -euo pipefail
+# system.slice, so the reserved CPUs are taken away from user.slice and
+# system.slice (everything users and services run, including other
+# containers) and given to pbbench.slice alone; perf/run.sh --isolated starts
+# the benchmark container there. All settings are --runtime: they live under
+# /run and vanish on reboot. Per-CPU kernel threads and interrupts are not
+# covered by cgroups and still run on the reserved CPUs; perf/run.sh records
+# per-pass CPU time to show them.
+set -uo pipefail
 
-bench_cpus=2-3
-other_cpus=0-1,4-13
+bench_cpus=${PERF_BENCH_CPUS:-2-3}
 freq_khz=${PERF_FREQ_KHZ:-2400000}
-# The frequency limits in force before `on`, restored by `off`.
-state=/run/pbbench-isolate.freq
+
+# One CPU number per line from a cpuset list ("0-1,4-13" or "0-1 4-13").
+expand_cpus() {
+  tr ', ' '\n\n' <<< "$1" | awk -F- 'NF { hi = (NF == 2 ? $2 : $1); for (i = $1; i <= hi; i++) print i }'
+}
+mapfile -t reserved < <(expand_cpus "$bench_cpus")
+# Every online CPU except the reserved ones, as a comma-separated list.
+other_cpus=$(expand_cpus "$(cat /sys/devices/system/cpu/online)" \
+  | grep -vxF -f <(printf '%s\n' "${reserved[@]}") | paste -sd,)
 
 cpufreq() { echo "/sys/devices/system/cpu/cpu$1/cpufreq/$2"; }
 
@@ -32,44 +39,72 @@ status() {
       "$(systemctl show "$unit" -p AllowedCPUs --value)" \
       "$(cat "/sys/fs/cgroup/$unit/cpuset.cpus.effective" 2>/dev/null || echo '(no cgroup yet)')"
   done
-  for c in 2 3; do
+  for c in "${reserved[@]}"; do
     echo "cpu$c scaling_min_freq=$(cat "$(cpufreq "$c" scaling_min_freq)") scaling_max_freq=$(cat "$(cpufreq "$c" scaling_max_freq)") cur=$(cat "$(cpufreq "$c" scaling_cur_freq)")"
   done
 }
 
+# Exit status 0 if any reserved CPU is still in the effective cpuset of the
+# given slice. systemd applies cpusets asynchronously and only logs a failed
+# write, so success of set-property proves nothing; the kernel's view does.
+slice_has_reserved() {
+  local effective c
+  effective=$(cat "/sys/fs/cgroup/$1/cpuset.cpus.effective")
+  for c in "${reserved[@]}"; do
+    if expand_cpus "$effective" | grep -qx "$c"; then return 0; fi
+  done
+  return 1
+}
+
 on() {
-  local c
-  if [[ ! -e $state ]]; then
-    for c in 2 3; do
-      echo "$c $(cat "$(cpufreq "$c" scaling_min_freq)") $(cat "$(cpufreq "$c" scaling_max_freq)")"
-    done > "$state"
-  fi
+  local c slice i
+  set -e
   systemctl set-property --runtime pbbench.slice AllowedCPUs="$bench_cpus"
   systemctl set-property --runtime user.slice AllowedCPUs="$other_cpus"
   systemctl set-property --runtime system.slice AllowedCPUs="$other_cpus"
-  # min <= max must hold after every write: when raising, max goes first;
-  # when lowering, min goes first. Lowering max to the target first and then
-  # raising min covers both directions from the default 0.4-4.9 GHz range.
-  for c in 2 3; do
+  # scaling_min_freq and scaling_max_freq are independent requests that the
+  # kernel clamps against each other, so the write order does not matter.
+  for c in "${reserved[@]}"; do
     echo "$freq_khz" > "$(cpufreq "$c" scaling_max_freq)"
     echo "$freq_khz" > "$(cpufreq "$c" scaling_min_freq)"
+  done
+  set +e
+  for slice in user.slice system.slice; do
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+      slice_has_reserved "$slice" || continue 2
+      sleep 0.5
+    done
+    echo "reservation not effective: $slice still has CPUs from $bench_cpus" >&2
+    status
+    exit 1
   done
   status
 }
 
+# Every step runs even if an earlier one fails, so a single error cannot
+# leave the frequency pinned or a slice restricted; the exit status reports
+# whether everything was restored.
 off() {
-  local c min max
-  systemctl set-property --runtime user.slice AllowedCPUs=
-  systemctl set-property --runtime system.slice AllowedCPUs=
-  systemctl set-property --runtime pbbench.slice AllowedCPUs=
-  if [[ -e $state ]]; then
-    while read -r c min max; do
-      echo "$min" > "$(cpufreq "$c" scaling_min_freq)"
-      echo "$max" > "$(cpufreq "$c" scaling_max_freq)"
-    done < "$state"
-    rm -f /run/pbbench-isolate.freq
-  fi
+  local c slice rc=0
+  for slice in user.slice system.slice pbbench.slice; do
+    systemctl set-property --runtime "$slice" AllowedCPUs= || rc=1
+  done
+  # Restored to the hardware limits rather than to values saved at `on`:
+  # those could have been a temporary clamp (thermal, a crashed earlier run)
+  # that would then stay in force until reboot.
+  for c in "${reserved[@]}"; do
+    cat "$(cpufreq "$c" cpuinfo_min_freq)" > "$(cpufreq "$c" scaling_min_freq)" || rc=1
+    cat "$(cpufreq "$c" cpuinfo_max_freq)" > "$(cpufreq "$c" scaling_max_freq)" || rc=1
+  done
+  sleep 1
+  for slice in user.slice system.slice; do
+    if ! slice_has_reserved "$slice"; then
+      echo "$slice still excludes CPUs from $bench_cpus" >&2
+      rc=1
+    fi
+  done
   status
+  return "$rc"
 }
 
 case ${1:-} in

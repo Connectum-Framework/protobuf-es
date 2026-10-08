@@ -79,6 +79,7 @@ perf/run.sh --base upstream/main --head my-branch --realistic --label my-change
 | `<side>/warmup.json` | the discarded warm-up pass |
 | `<side>/lib.txt` | what the benchmark resolved: link target, version, sha256 of the built `dist` (identical for A/A, different for A/B) |
 | `<side>/build.log` | install, build, codegen, generated-code check, typecheck |
+| `container-cpuset.txt` | CPUs the container could actually run on; `run.sh` rejects the run unless it is exactly the pinned CPU |
 | `order.log` | which side ran first in each pair |
 | `env.log` | frequency and `/proc/stat` line of the pinned CPU and its sibling, before and after each pass |
 | `freq.log` | frequency of the pinned CPU and its sibling every 250 ms, sampled from the host |

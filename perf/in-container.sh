@@ -8,6 +8,10 @@ git config --global --add safe.directory '*'
 # /work is a host directory (perf/run.sh refuses to start unless it is empty);
 # the build trees are removed on any exit so the next run finds it empty.
 trap 'rm -rf /work/a /work/b' EXIT
+
+# The CPUs this container may actually run on, as the kernel applies them
+# (a cgroup namespace shows the container's own cgroup at the root).
+cat /sys/fs/cgroup/cpuset.cpus.effective > /out/container-cpuset.txt
 # The measured repository is the mounted worktree, the working directory at
 # start. Every git call names it explicitly, because each build tree gets its
 # own empty .git below.

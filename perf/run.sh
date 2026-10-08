@@ -72,15 +72,17 @@ harness_sha=$(resolve "$harness")
 siblings=$(cat "/sys/devices/system/cpu/cpu$cpu/topology/thread_siblings_list")
 cpus=$(echo "$siblings" | awk -F'[,-]' '{ for (i = $1; i <= $NF; i++) printf "%s ", i }')
 
-# Expands a cpuset list such as "0-1,4-13" into one CPU number per line.
+# Expands a cpuset list into one CPU number per line. The kernel separates
+# ranges with commas ("0-1,4-13"), systemctl show with spaces ("0-1 4-13").
 expand_cpus() {
-  tr ',' '\n' <<< "$1" | awk -F- 'NF { hi = (NF == 2 ? $2 : $1); for (i = $1; i <= hi; i++) print i }'
+  tr ', ' '\n\n' <<< "$1" | awk -F- 'NF { hi = (NF == 2 ? $2 : $1); for (i = $1; i <= hi; i++) print i }'
 }
 
 if [[ $isolated -eq 1 ]]; then
-  # The reservation is checked on the effective cpusets the kernel applies,
-  # not on what was requested: the benchmark core must belong to
-  # pbbench.slice and to neither of the slices everything else runs in.
+  # The benchmark core must be requested for pbbench.slice (its cgroup only
+  # exists while a container runs in it, so the request is what can be read
+  # here; the container records the cpuset it actually got) and must be
+  # absent from the effective cpusets of the slices everything else runs in.
   reserved=$(systemctl show pbbench.slice -p AllowedCPUs --value)
   for c in $cpus; do
     if ! expand_cpus "$reserved" | grep -qx "$c"; then
@@ -191,6 +193,12 @@ docker run --rm \
   -w "$repo_root" \
   "$image" \
   bash "$repo_root/perf/in-container.sh"
+
+got=$(cat "$out/container-cpuset.txt")
+if [[ $got != "$cpu" ]]; then
+  echo "container ran on CPUs '$got', not on CPU $cpu; results are not valid: $out" >&2
+  exit 1
+fi
 
 "$repo_root/perf/report.sh" "$out"
 echo "results: $out"
