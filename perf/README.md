@@ -33,9 +33,31 @@ Docker (`node:24.21.0` by default), pinned to one CPU:
 - CPU profiles show where time goes, not how much: profile runs are neither
   interleaved nor repeated, and their ops/s line is not a measurement.
 
+## Reserving a core (`perf/isolate.sh`)
+
+On a shared laptop the benchmark core is never idle, and its frequency
+wanders with load. `sudo perf/isolate.sh on` takes CPU 2 and its sibling
+CPU 3 away from `user.slice` and `system.slice` (everything users and services
+run, Docker containers included), gives them to `pbbench.slice`, and pins
+their frequency (`PERF_FREQ_KHZ`, default 2.4 GHz, below the level this 15 W
+part sustains on one loaded core). `perf/run.sh --isolated` starts the
+benchmark container in that slice and refuses to run if the reservation is
+not in force. `sudo perf/isolate.sh off` restores everything; all settings are
+runtime-only and also vanish on reboot. Kernel threads and interrupts are not
+covered; `env.log` shows their CPU time per pass.
+
+The rest of the machine still shares the L3 cache, memory bandwidth and the
+package power budget with the reserved core. `freq.log` shows whether the
+pinned frequency held; the A/A run shows how much noise remains.
+
 ## Usage
 
 ```sh
+# With a reserved core (recommended on a shared machine):
+sudo perf/isolate.sh on
+perf/run.sh --isolated --base upstream/main --head upstream/main --label aa
+sudo perf/isolate.sh off
+
 # A/A: the noise floor. Run this before trusting any A/B on this machine.
 perf/run.sh --base upstream/main --head upstream/main --label aa-upstream
 
@@ -52,7 +74,7 @@ perf/run.sh --base upstream/main --head my-branch --realistic --label my-change
 
 | File | Content |
 |---|---|
-| `meta.json` | resolved SHAs, image and its digest, CPUs, passes, cooldown, corpus, host CPU model, kernel, governor, EPP, turbo |
+| `meta.json` | resolved SHAs, image and its digest, CPUs, passes, cooldown, whether the core was reserved, corpus, host CPU model, kernel, governor, EPP, turbo, frequency limits |
 | `<side>/run-NNN.json` | one pass: per case mean and p50 ops/s; `run-NNN.err` its stderr |
 | `<side>/warmup.json` | the discarded warm-up pass |
 | `<side>/lib.txt` | what the benchmark resolved: link target, version, sha256 of the built `dist` (identical for A/A, different for A/B) |
