@@ -85,8 +85,10 @@ jobs:
       - name: Noise band from the latest A/A on main
         id: aa
         run: |
+          # No calibration yet is a normal state (bench-aa.yaml not on main
+          # yet, or never run): the report then says it is not calibrated.
           run=$(gh run list --workflow bench-aa.yaml --branch main --status success \
-            --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
           if [[ -n $run ]] && gh run download "$run" -n "bench-aa-${{ matrix.corpus }}" -D "$RUNNER_TEMP/aa"; then
             echo "file=$RUNNER_TEMP/aa/aa-noise.json" >> "$GITHUB_OUTPUT"
             echo "run=$run" >> "$GITHUB_OUTPUT"
