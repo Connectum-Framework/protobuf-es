@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks that the changes between two revisions are of one kind only:
 #   library  packages/protobuf/, packages/protobuf-test/,
-#            packages/protobuf-conformance/, packages/bundle-size/README.md
+#            packages/protobuf-conformance/, packages/bundle-size/{README.md,chart.svg}
 #   tooling  packages/protobuf-bench/, perf/, .github/workflows/bench-*.yaml,
 #            .github/workflows/overlay-paths.yaml
 # A library change is later proposed upstream by cherry-picking it onto
@@ -14,7 +14,7 @@ set -euo pipefail
 
 base=${1:?usage: perf/overlay-paths.sh <base> <head>} head=${2:?}
 
-library='^(packages/protobuf/|packages/protobuf-test/|packages/protobuf-conformance/|packages/bundle-size/README\.md$)'
+library='^(packages/protobuf/|packages/protobuf-test/|packages/protobuf-conformance/|packages/bundle-size/(README\.md|chart\.svg)$)'
 tooling='^(packages/protobuf-bench/|perf/|\.github/workflows/bench-[^/]+\.yaml$|\.github/workflows/overlay-paths\.yaml$)'
 
 files=$(git diff --name-only "$base...$head")

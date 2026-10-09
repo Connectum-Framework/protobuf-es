@@ -160,6 +160,15 @@ license-header, format, bundle-size and bootstrap jobs followed by
 per job. Trixie-based images are required: the conformance runner needs
 glibc 2.38.
 
+When `format`, `bundle-size` or `license-header` fail there, the job wants
+its generated output committed: `perf/turbo-patch.sh <ref> <task> <patch>`
+runs that task in Docker and writes the changes as a patch to `git apply`.
+A library change that alters bundle size must carry the regenerated
+`packages/bundle-size/README.md` and `chart.svg`. Note that the bundle-size
+entry points do not import every module (none imports `fromJson`, for
+example); `perf/minsize.sh <result-dir> <file>` measures one built file on
+both sides of an A/B instead.
+
 ## The fork and its CI
 
 The fork's `main` is upstream's `main` plus a linear overlay of two kinds of
@@ -167,7 +176,7 @@ squash-merged commits, never mixed in one pull request
 (`overlay-paths.yaml`, rules in `perf/overlay-paths.sh`):
 
 - library changes — `packages/protobuf/`, `packages/protobuf-test/`,
-  `packages/protobuf-conformance/`, `packages/bundle-size/README.md`; each is
+  `packages/protobuf-conformance/`, `packages/bundle-size/` README and chart; each is
   later proposed upstream by cherry-picking it onto upstream's `main`;
 - fork tooling — `packages/protobuf-bench/`, `perf/`, `bench-*` and
   `overlay-paths` workflows; never part of an upstream pull request.
