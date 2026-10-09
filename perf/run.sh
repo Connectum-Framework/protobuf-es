@@ -117,27 +117,13 @@ if [[ -n $(ls -A "$work") ]]; then
   exit 1
 fi
 
-cpufreq=/sys/devices/system/cpu/cpu$cpu/cpufreq
-jq -n --arg base "$base_sha" --arg head "$head_sha" --arg harness "$harness_sha" \
-  --arg image "$image" \
-  --arg digest "$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || echo unknown)" \
-  --arg cpus "$cpus" --argjson passes "$passes" --argjson cooldown "$cooldown" \
-  --argjson wait "$wait" --argjson realistic "$realistic" \
-  --arg filters "${filters[*]:-}" --arg profiles "${profiles[*]:-}" \
-  --arg model "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ //')" \
-  --arg kernel "$(uname -r)" \
-  --arg governor "$(cat "$cpufreq/scaling_governor")" \
-  --arg epp "$(cat "$cpufreq/energy_performance_preference" 2>/dev/null || echo n/a)" \
-  --arg no_turbo "$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo n/a)" \
-  --arg fmin "$(cat "$cpufreq/scaling_min_freq")" --arg fmax "$(cat "$cpufreq/scaling_max_freq")" \
-  --argjson isolated "$isolated" \
-  '{base: $base, head: (if $head == "" then null else $head end),
-    harness: $harness, image: $image, imageDigest: $digest, cpus: $cpus,
-    passes: $passes, warmupPairs: 1, cooldown: $cooldown, waitedForIdle: ($wait == 1),
-    isolated: ($isolated == 1),
-    realistic: ($realistic == 1), filters: $filters, profiles: $profiles,
-    host: {cpu: $model, kernel: $kernel, governor: $governor, epp: $epp,
-           noTurbo: $no_turbo, scalingMinKhz: $fmin, scalingMaxKhz: $fmax}}' > "$out/meta.json"
+BENCH_BASE="$base_sha" BENCH_HEAD="$head_sha" BENCH_HARNESS="$harness_sha" \
+  BENCH_PASSES="$passes" BENCH_COOLDOWN="$cooldown" BENCH_CPUS="$cpus" \
+  BENCH_REALISTIC="$realistic" BENCH_FILTERS="${filters[*]:-}" BENCH_PROFILES="${profiles[*]:-}" \
+  META_RUNTIME="$image" \
+  META_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || echo unknown)" \
+  META_WAITED="$wait" META_ISOLATED="$isolated" \
+  "$repo_root/perf/write-meta.sh" "$out/meta.json"
 
 if [[ $wait -eq 1 ]]; then
   if [[ $isolated -eq 1 ]]; then

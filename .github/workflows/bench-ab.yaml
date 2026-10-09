@@ -1,0 +1,113 @@
+name: bench-ab
+
+# Fork-only. Measures a pull request against its base with perf/measure.sh,
+# the same procedure as the local Docker runner: both sides are built from the
+# PR's benchmark code with packages/protobuf from base and head, fresh
+# processes alternate in random order, and perf/report.sh compares pairs with
+# a sign test. Two corpora run in parallel jobs, never in one process, since
+# each changes the JIT state the other's cases run under. See perf/README.md.
+#
+# A result is a signal only when the sign test rejects "no difference" AND
+# the effect exceeds the noise band from the latest bench-aa run on main;
+# without such a run, the report says the band is not calibrated. A
+# regression does not fail the job: whether it matters is a reviewer's call.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/protobuf/**"
+      - "packages/protobuf-bench/**"
+      - "perf/**"
+      - ".github/workflows/bench-ab.yaml"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull request number to measure"
+        required: true
+      passes:
+        description: "Measured pairs per corpus"
+        default: "10"
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: bench-ab-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  ab:
+    name: bench-ab (${{ matrix.corpus }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        corpus: [upstream, realistic]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.pull_request.number || inputs.pr }}
+      PASSES: ${{ inputs.passes || '10' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Resolve revisions
+        id: rev
+        run: |
+          # For a pull_request event, GITHUB_SHA is the merge commit of the PR
+          # into its base: the benchmark code under review, on today's base.
+          if [[ "${{ github.event_name }}" == pull_request ]]; then
+            head=$GITHUB_SHA
+            base=${{ github.event.pull_request.base.sha }}
+          else
+            # A manual run measures the PR head against the current base
+            # (there is no merge commit to check out by SHA).
+            head=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+            base=$(gh pr view "$PR" --json baseRefOid --jq .baseRefOid)
+            git fetch origin "$head" "$base"
+          fi
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Measure
+        run: perf/ci-measure.sh ${{ matrix.corpus }} ${{ steps.rev.outputs.base }} ${{ steps.rev.outputs.head }} "$PASSES" "$RUNNER_TEMP/bench-out"
+      - name: Noise band from the latest A/A on main
+        id: aa
+        run: |
+          run=$(gh run list --workflow bench-aa.yaml --branch main --status success \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [[ -n $run ]] && gh run download "$run" -n "bench-aa-${{ matrix.corpus }}" -D "$RUNNER_TEMP/aa"; then
+            echo "file=$RUNNER_TEMP/aa/aa-noise.json" >> "$GITHUB_OUTPUT"
+            echo "run=$run" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Report
+        run: |
+          AA_NOISE="${{ steps.aa.outputs.file }}" perf/report.sh "$RUNNER_TEMP/bench-out" > /dev/null
+          {
+            echo "## bench-ab: ${{ matrix.corpus }} corpus"
+            echo
+            if [[ -n "${{ steps.aa.outputs.run }}" ]]; then
+              echo "Noise band from bench-aa run ${{ steps.aa.outputs.run }}."
+            fi
+            cat "$RUNNER_TEMP/bench-out/report.md"
+          } > "$RUNNER_TEMP/comment.md"
+          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          if jq -e '[.ab[]? | select(.signal == "REGRESSION")] | length > 0' \
+              "$RUNNER_TEMP/bench-out/summary.json" > /dev/null; then
+            echo "::warning::bench-ab (${{ matrix.corpus }}): regressions flagged, see the report"
+          fi
+      - name: Comment on the pull request
+        run: perf/pr-comment.sh "${{ github.repository }}" "$PR" "bench-ab-${{ matrix.corpus }}" "$RUNNER_TEMP/comment.md"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: bench-ab-${{ env.PR }}-${{ matrix.corpus }}
+          path: ${{ runner.temp }}/bench-out
+          retention-days: 90

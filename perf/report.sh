@@ -51,7 +51,9 @@ lib_of() { [[ -f $out/$1/lib.txt ]] && grep '^dist_sha256=' "$out/$1/lib.txt" | 
 # below 98 % of the pinned frequency, and the mean frequency. A pinned minimum
 # is a request, not a guarantee: on this 15 W part, load on the other cores
 # eats the package power budget and drags the reserved core below it.
-pinned_khz=$(jq -r 'if .host.scalingMinKhz == .host.scalingMaxKhz then .host.scalingMinKhz else "" end' "$out/meta.json")
+# Only a numeric, pinned (min == max) frequency qualifies; a virtual machine
+# without cpufreq reports "n/a" for both.
+pinned_khz=$(jq -r '.host | if .scalingMinKhz == .scalingMaxKhz and (.scalingMinKhz | test("^[0-9]+$")) then .scalingMinKhz else "" end' "$out/meta.json")
 pinned_cpu=$(jq -r '.cpus | split(" ")[0]' "$out/meta.json")
 : > "$out/pass-freq.tsv"
 if [[ -n $pinned_khz && -f $out/freq.log && -f $out/env.log ]]; then
@@ -138,16 +140,32 @@ jq -n '
                 | select($x != null and $y != null) | $y / $x] as $r
               | ($r | map(select(. > 1)) | length) as $w
               | ($r | map(select(. != 1)) | length) as $n
-              | {ratio: ($r | median), wins: $w, pairs: ($r | length),
-                 ties: (($r | length) - $n), p: sign_p($w; $n), sdLog: ($r | sdlog)})
+              | sign_p($w; $n) as $p
+              | ($r | median) as $ratio
+              | (($aa[0] // {})[$name].band) as $calibrated
+              | ($calibrated // 0.03) as $band
+              | {ratio: $ratio, wins: $w, pairs: ($r | length),
+                 ties: (($r | length) - $n), p: $p, sdLog: ($r | sdlog),
+                 maxAbsLog: ($r | map(log | fabs) | max),
+                 band: $band, bandCalibrated: ($calibrated != null),
+                 # A signal needs both: the sign test rejects "no difference",
+                 # and the effect is larger than anything an A/A run of the
+                 # same case produced on this kind of machine.
+                 signal: (if $p != null and $p < 0.05 and $ratio != null
+                            and (($ratio | log | fabs) > $band)
+                          then (if $ratio > 1 then "IMPROVEMENT" else "REGRESSION" end)
+                          else null end)})
           }) | from_entries
-        end)
+        end),
+      aaNoise: (if $aaSource == "" then null else $aaSource end)
     }
 ' --slurpfile meta "$out/meta.json" \
   --slurpfile pa "$out/a/passes.json" \
   --slurpfile pb <([[ -n $b_passes ]] && cat "$out/b/passes.json" || true) \
   --arg libA "$(lib_of a)" --arg libB "$(lib_of b)" \
   --argjson rejected "$rejected" --arg maxLow "${MAX_LOW_FREQ_PCT:-}" \
+  --slurpfile aa <([[ -n ${AA_NOISE:-} ]] && cat "$AA_NOISE" || true) \
+  --arg aaSource "${AA_NOISE:-}" \
   > "$out/$summary_name"
 jq -r '
   def r0: if . == null then "–" else (. * 1 | round | tostring) end;
@@ -166,10 +184,14 @@ jq -r '
     "|---|---:|---:|---:|---:|",
     (.a | to_entries[] | "| \(.key) | \(.value.p50 | r0) | \(.value.p50Min | r0) | \(.value.p50Max | r0) | \(.value.mean | r0) |")
   else
-    "| case | A p50 ops/s | B p50 ops/s | B/A (median of pairs) | pair noise (sd of ln B/A) | B wins / non-tied pairs | sign-test p |",
-    "|---|---:|---:|---:|---:|---:|---:|",
+    (if .aaNoise == null
+     then "- signal band: 3 % for every case, NOT calibrated (no A/A noise file given)"
+     else "- signal band: per case, from the A/A run `\(.aaNoise)`" end),
+    "",
+    "| case | A p50 ops/s | B p50 ops/s | B/A (median of pairs) | pair noise (sd of ln B/A) | B wins / non-tied pairs | sign-test p | A/A band | signal |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---|",
     (. as $s | .ab | to_entries[]
-      | "| \(.key) | \($s.a[.key].p50 | r0) | \($s.b[.key].p50 | r0) | \(.value.ratio | pct) | \(if .value.sdLog == null then "–" else (.value.sdLog * 1000 | round / 10 | tostring) + " %" end) | \(.value.wins)/\(.value.pairs - .value.ties) | \(.value.p | p3) |")
+      | "| \(.key) | \($s.a[.key].p50 | r0) | \($s.b[.key].p50 | r0) | \(.value.ratio | pct) | \(if .value.sdLog == null then "–" else (.value.sdLog * 1000 | round / 10 | tostring) + " %" end) | \(.value.wins)/\(.value.pairs - .value.ties) | \(.value.p | p3) | \(.value.band * 1000 | round / 10)\(if .value.bandCalibrated then "" else "*" end) % | \(.value.signal // "–") |")
   end
 ' "$out/$summary_name" > "$out/$report_name"
 
