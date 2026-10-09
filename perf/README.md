@@ -97,12 +97,73 @@ self time in `.cpuprofile` files; locations refer to `<side>/dist/`.
 ## Reading the report
 
 Decisions use the median latency (p50): per-sample latency is heavy-tailed.
-For an A/B, passes are paired by file name; each pair gives a ratio B/A. The
-report shows the median ratio, how many non-tied pairs B won, and an exact
-two-sided sign-test p-value (with 10 pairs, 9 wins are needed for p < 0.05).
-An effect is accepted only if it is outside the band an A/A run shows for the
-same case. With some fifty cases per report, a few will cross p < 0.05 by
-chance alone; a single significant case is a lead to replicate, not a result.
+For an A/B, passes are paired by file name; each pair gives a ratio r = B/A.
+Per case the report shows the median of r, the robust pair noise (1.4826 ×
+MAD of ln r; the standard deviation is inflated several-fold by the tails a
+loaded host produces), how many non-tied pairs B won, the exact two-sided
+sign-test p, and that p corrected over all cases of the report
+(Benjamini-Hochberg).
+
+A case is flagged IMPROVEMENT or REGRESSION only if all of these hold:
+
+- the corrected p is ≤ 0.05 — with some fifty cases, raw p < 0.05 would
+  flag a few by chance in every run;
+- |ln median r| ≥ ln 1.02 + bias bound: a practical floor of 2 %, plus the
+  rig's systematic bias bound measured by an A/A run (`AA_NOISE=`, below).
+
+Measured on this laptop (two local A/A runs, 30 pairs, 40 and 66 cases): no
+false signal; the bias bound was 0.3 % and 0.2 %. A uniform 5 % shift of one
+side is flagged in 106 of 106 cases upwards and 105 of 106 downwards
+(`perf/test-report.sh`). With 30 pairs a single-case effect of about 3 % is
+detectable; with 10 pairs a single case cannot reach significance at all
+after the correction (10 of 10 wins gives p = 0.002 > 0.05 / 40), so 10
+pairs is a smoke run, not a measurement.
 
 For sub-microsecond cases each sample also contains tinybench's fixed timing
 overhead, on both sides, which shrinks the visible ratio slightly.
+
+## Calibration and self-test
+
+```sh
+perf/report.sh <A/A dir>                       # refresh its summary.json
+perf/aa-noise.sh <A/A dir>/summary.json > aa-noise.json
+AA_NOISE=aa-noise.json perf/report.sh <A/B dir>
+perf/test-report.sh <A/A dir>                  # rule self-test, see above
+```
+
+`aa-noise.sh` refuses a run whose two sides differ, and an A/A smaller than
+20 cases × 20 pairs. The report warns when the A/A came from another rig
+(host CPU, CPU set or runtime).
+
+## Library checks (`perf/check.sh`)
+
+`perf/check.sh <ref>` runs the jobs of upstream's `ci.yaml` against a
+committed revision in Docker: tests and conformance on Node.js 22, 24 and 26
+in both bigint modes, lint, attw, TypeScript compatibility, and the
+license-header, format, bundle-size and bootstrap jobs followed by
+`gh-diffcheck`. Results: `.tmp/perf/check-<label>/summary.txt` and one log
+per job. Trixie-based images are required: the conformance runner needs
+glibc 2.38.
+
+## The fork and its CI
+
+The fork's `main` is upstream's `main` plus a linear overlay of two kinds of
+squash-merged commits, never mixed in one pull request
+(`overlay-paths.yaml`, rules in `perf/overlay-paths.sh`):
+
+- library changes — `packages/protobuf/`, `packages/protobuf-test/`,
+  `packages/protobuf-conformance/`, `packages/bundle-size/README.md`; each is
+  later proposed upstream by cherry-picking it onto upstream's `main`;
+- fork tooling — `packages/protobuf-bench/`, `perf/`, `bench-*` and
+  `overlay-paths` workflows; never part of an upstream pull request.
+
+`bench-ab.yaml` measures every pull request that touches the library or the
+tooling against its base, on both corpora in parallel jobs (30 pairs each, up
+to about 2 hours), with `perf/ci-measure.sh` → `perf/measure.sh` (each
+measured process pinned with `taskset -c 2`), and posts the report as one
+comment per corpus that later runs replace. `bench-aa.yaml` measures `main`
+against itself weekly and on demand; bench-ab takes the bias bound from its
+latest successful run. Re-run bench-aa after every sync with upstream.
+
+Tags are never pushed to the fork: upstream's `publish.yaml` would publish
+on a `v*` tag.

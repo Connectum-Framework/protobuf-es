@@ -122,6 +122,20 @@ jq -n '
       else with_entries(select(.key as $k | $rejected | index($k) | not)) end) as $b
   | side($a) as $A
   | (if $b == null then null else side($b) end) as $B
+  # Signal threshold: the practical floor of 2 % plus the systematic bias
+  # bound of the rig from an A/A run (perf/aa-noise.sh); without an A/A file
+  # the bias is taken as zero and the report says so.
+  | (1.02 | log) as $thetaMin
+  | ($aa[0] // null) as $noise
+  | (($noise.bias.bound) // 0) as $biasBound
+  | ($thetaMin + $biasBound) as $theta
+  | ([ (if $noise != null and ($noise.hostCpu != $m.host.cpu or $noise.cpus != $m.cpus
+            or $noise.image != $m.image)
+        then "the A/A calibration was measured on a different rig (host CPU, CPU set or runtime)"
+        else empty end),
+       (if $biasBound > $thetaMin / 2
+        then "the rig bias bound (\($biasBound * 1000 | round / 10) %) is comparable to the practical floor; the A/A run does not certify this rig"
+        else empty end) ]) as $warnings
   | {
       meta: $m,
       rejectedPairs: $rejected,
@@ -131,33 +145,45 @@ jq -n '
       a: $A,
       b: $B,
       ab: (if $B == null then null else
-        [$A | keys[] | select($B[.] != null)]
-        | map(. as $name | {
-            key: $name,
-            value: (
-              [$a | keys[] as $k
-                | p50($a[$k]; $name) as $x | p50($b[$k]; $name) as $y
-                | select($x != null and $y != null) | $y / $x] as $r
-              | ($r | map(select(. > 1)) | length) as $w
-              | ($r | map(select(. != 1)) | length) as $n
-              | sign_p($w; $n) as $p
-              | ($r | median) as $ratio
-              | (($aa[0] // {})[$name].band) as $calibrated
-              | ($calibrated // 0.03) as $band
-              | {ratio: $ratio, wins: $w, pairs: ($r | length),
-                 ties: (($r | length) - $n), p: $p, sdLog: ($r | sdlog),
-                 maxAbsLog: ($r | map(log | fabs) | max),
-                 band: $band, bandCalibrated: ($calibrated != null),
-                 # A signal needs both: the sign test rejects "no difference",
-                 # and the effect is larger than anything an A/A run of the
-                 # same case produced on this kind of machine.
-                 signal: (if $p != null and $p < 0.05 and $ratio != null
-                            and (($ratio | log | fabs) > $band)
-                          then (if $ratio > 1 then "IMPROVEMENT" else "REGRESSION" end)
-                          else null end)})
-          }) | from_entries
+        # Per case: the pair ratios r = B/A, their median, the sign test,
+        # and the robust spread of ln r (1.4826 * MAD), which unlike the
+        # standard deviation is not inflated by the heavy tails a loaded
+        # host produces.
+        ([$A | keys[] | select($B[.] != null)]
+         | map(. as $name
+             | [$a | keys[] as $k
+                 | p50($a[$k]; $name) as $x | p50($b[$k]; $name) as $y
+                 | select($x != null and $y != null) | $y / $x] as $r
+             | ($r | map(select(. > 1)) | length) as $w
+             | ($r | map(select(. != 1)) | length) as $n
+             | ($r | map(log)) as $l
+             | ($l | median) as $lm
+             | {name: $name, ratio: ($r | median), wins: $w, pairs: ($r | length),
+                ties: (($r | length) - $n), p: sign_p($w; $n), sdLog: ($r | sdlog),
+                lnMedian: $lm,
+                sigmaRobust: (if $lm == null then null
+                              else 1.4826 * ($l | map(. - $lm | fabs) | median) end)})) as $cases
+        # Benjamini-Hochberg over the cases of this report: with some fifty
+        # cases, raw p < 0.05 would flag a few by chance in every run.
+        | ([$cases[] | select(.p != null)] | sort_by(.p)) as $sorted
+        | ($sorted | length) as $m
+        | (reduce range($m - 1; -1; -1) as $i ({next: 1, adj: {}};
+             ([.next, ($m * $sorted[$i].p / ($i + 1)), 1] | min) as $v
+             | .adj[$sorted[$i].name] = $v | .next = $v) | .adj) as $padj
+        | ($cases | map({key: .name, value: (del(.name) + {pAdj: $padj[.name],
+            # A signal needs all three: the corrected sign test rejects "no
+            # difference", the effect is at least the practical floor (2 %),
+            # and it also exceeds the bias the A/A run found in the rig.
+            signal: (if $padj[.name] != null and $padj[.name] <= 0.05 and .ratio != null
+                       and ((.ratio | log | fabs) >= $theta)
+                     then (if .ratio > 1 then "IMPROVEMENT" else "REGRESSION" end)
+                     else null end)})}) | from_entries)
         end),
-      aaNoise: (if $aaSource == "" then null else $aaSource end)
+      theta: $theta,
+      thetaMin: $thetaMin,
+      biasBound: $biasBound,
+      aaNoise: (if $aaSource == "" then null else $aaSource end),
+      warnings: $warnings
     }
 ' --slurpfile meta "$out/meta.json" \
   --slurpfile pa "$out/a/passes.json" \
@@ -184,14 +210,13 @@ jq -r '
     "|---|---:|---:|---:|---:|",
     (.a | to_entries[] | "| \(.key) | \(.value.p50 | r0) | \(.value.p50Min | r0) | \(.value.p50Max | r0) | \(.value.mean | r0) |")
   else
-    (if .aaNoise == null
-     then "- signal band: 3 % for every case, NOT calibrated (no A/A noise file given)"
-     else "- signal band: per case, from the A/A run `\(.aaNoise)`" end),
+    "- signal: Benjamini-Hochberg-corrected sign test p ≤ 0.05 and |B/A − 1| ≥ \(((.theta | exp) - 1) * 1000 | round / 10) % (2 % floor + \(.biasBound * 1000 | round / 10) % rig bias bound" + (if .aaNoise == null then ", NOT calibrated: no A/A file given)" else " from `\(.aaNoise)`)" end),
+    (.warnings[] | "- ⚠ \(.)"),
     "",
-    "| case | A p50 ops/s | B p50 ops/s | B/A (median of pairs) | pair noise (sd of ln B/A) | B wins / non-tied pairs | sign-test p | A/A band | signal |",
+    "| case | A p50 ops/s | B p50 ops/s | B/A (median of pairs) | pair noise (robust σ of ln B/A) | B wins / non-tied pairs | sign-test p | BH p | signal |",
     "|---|---:|---:|---:|---:|---:|---:|---:|---|",
     (. as $s | .ab | to_entries[]
-      | "| \(.key) | \($s.a[.key].p50 | r0) | \($s.b[.key].p50 | r0) | \(.value.ratio | pct) | \(if .value.sdLog == null then "–" else (.value.sdLog * 1000 | round / 10 | tostring) + " %" end) | \(.value.wins)/\(.value.pairs - .value.ties) | \(.value.p | p3) | \(.value.band * 1000 | round / 10)\(if .value.bandCalibrated then "" else "*" end) % | \(.value.signal // "–") |")
+      | "| \(.key) | \($s.a[.key].p50 | r0) | \($s.b[.key].p50 | r0) | \(.value.ratio | pct) | \(if .value.sigmaRobust == null then "–" else (.value.sigmaRobust * 1000 | round / 10 | tostring) + " %" end) | \(.value.wins)/\(.value.pairs - .value.ties) | \(.value.p | p3) | \(.value.pAdj | p3) | \(.value.signal // "–") |")
   end
 ' "$out/$summary_name" > "$out/$report_name"
 

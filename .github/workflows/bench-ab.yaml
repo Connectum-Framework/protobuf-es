@@ -7,10 +7,13 @@ name: bench-ab
 # a sign test. Two corpora run in parallel jobs, never in one process, since
 # each changes the JIT state the other's cases run under. See perf/README.md.
 #
-# A result is a signal only when the sign test rejects "no difference" AND
-# the effect exceeds the noise band from the latest bench-aa run on main;
-# without such a run, the report says the band is not calibrated. A
-# regression does not fail the job: whether it matters is a reviewer's call.
+# A case is a signal only when the sign test, corrected for the number of
+# cases (Benjamini-Hochberg), rejects "no difference" AND the effect is at
+# least 2 % plus the rig bias bound from the latest bench-aa run on main;
+# without such a run the report says it is not calibrated. 30 pairs: with
+# fewer, a single case cannot reach significance after the correction (10/10
+# gives p = 0.002 > 0.05/40). A regression does not fail the job: whether it
+# matters is a reviewer's call.
 
 on:
   pull_request:
@@ -27,7 +30,7 @@ on:
         required: true
       passes:
         description: "Measured pairs per corpus"
-        default: "10"
+        default: "30"
 
 permissions:
   contents: read
@@ -42,7 +45,8 @@ jobs:
   ab:
     name: bench-ab (${{ matrix.corpus }})
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # 30 pairs of the upstream corpus take about 2 x 30 x 104 s locally.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
@@ -50,7 +54,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       PR: ${{ github.event.pull_request.number || inputs.pr }}
-      PASSES: ${{ inputs.passes || '10' }}
+      PASSES: ${{ inputs.passes || '30' }}
     steps:
       - uses: actions/checkout@v7
         with:
