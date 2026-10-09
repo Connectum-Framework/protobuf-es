@@ -77,8 +77,7 @@ if (values.json) {
     if (!("latency" in result)) {
       return {
         name: task.name,
-        error:
-          result.state === "errored" ? result.error.message : result.state,
+        error: result.state === "errored" ? result.error.message : result.state,
       };
     }
     // Both the mean (what the table shows, comparable with upstream's

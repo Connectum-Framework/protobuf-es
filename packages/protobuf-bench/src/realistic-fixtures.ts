@@ -13,7 +13,10 @@
 // limitations under the License.
 
 import { create } from "@bufbuild/protobuf";
-import { SimpleMessageSchema, type SimpleMessage } from "./gen/realistic/v1/small_pb.js";
+import {
+  SimpleMessageSchema,
+  type SimpleMessage,
+} from "./gen/realistic/v1/small_pb.js";
 import {
   AnyValueSchema,
   ExportTraceRequestSchema,
@@ -458,7 +461,8 @@ export function buildExportLogsRequest(
     records.push(
       create(LogRecordSchema, {
         timeUnixNano: BigInt("1700000000000000000") + BigInt(i) * BigInt(1000),
-        observedTimeUnixNano: BigInt("1700000000000001000") + BigInt(i) * BigInt(1000),
+        observedTimeUnixNano:
+          BigInt("1700000000000001000") + BigInt(i) * BigInt(1000),
         severityNumber: 9 + (i % 4),
         severityText: ["INFO", "WARN", "ERROR", "DEBUG"][i % 4],
         body: create(LogAnyValueSchema, {
@@ -562,7 +566,8 @@ function buildK8sPod(i: number) {
       "prometheus.io/port": "9090",
       "kubectl.kubernetes.io/last-applied-configuration": "{}",
     },
-    creationTimestampUnixNano: BigInt("1700000000000000000") + BigInt(i) * BigInt(1000),
+    creationTimestampUnixNano:
+      BigInt("1700000000000000000") + BigInt(i) * BigInt(1000),
   });
   const spec = create(K8sPodSpecSchema, {
     containers: [buildK8sContainer(i, 0), buildK8sContainer(i, 1)],

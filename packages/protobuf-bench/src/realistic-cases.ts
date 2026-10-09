@@ -91,11 +91,7 @@ export function realisticCases(): Record<string, Case> {
       ExportLogsRequestSchema,
       buildExportLogsRequest(),
     ),
-    ...messageCasesFromMessage(
-      "k8s-pods",
-      K8sPodListSchema,
-      buildK8sPodList(),
-    ),
+    ...messageCasesFromMessage("k8s-pods", K8sPodListSchema, buildK8sPodList()),
     ...messageCasesFromMessage(
       "graphql-request",
       GraphQLRequestSchema,
