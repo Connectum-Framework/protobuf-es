@@ -23,7 +23,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n $ref ]] || { echo "usage: perf/check.sh <git-ref> [--node IMAGE]... [--label NAME]" >&2; exit 2; }
-[[ ${#images[@]} -gt 0 ]] || images=(node:22 node:24.21.0 node:26)
+# Debian trixie images: the conformance runner binary needs glibc >= 2.38,
+# which the bookworm-based default tags (glibc 2.36) do not have.
+[[ ${#images[@]} -gt 0 ]] || images=(node:22-trixie node:24-trixie node:26-trixie)
 
 repo_root=$(git rev-parse --show-toplevel)
 git_common=$(cd "$repo_root" && cd "$(git rev-parse --git-common-dir)" && pwd)
