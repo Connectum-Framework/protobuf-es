@@ -122,14 +122,20 @@ pairs is a smoke run, not a measurement.
 For sub-microsecond cases each sample also contains tinybench's fixed timing
 overhead, on both sides, which shrinks the visible ratio slightly.
 
-On a loaded host the correction is not enough on its own. In one local A/B
-(load ~20-40, 38 of 62 passes more than 20 % of their time below the pinned
-frequency) `toBinary/stress` was flagged −4.8 % for a change that does not
-touch that path; with pairs under frequency drops removed
-(`MAX_LOW_FREQ_PCT=30`) it was −3.2 %, p 0.15, and a targeted re-run of that
-case alone gave −0.2 %, p 0.86. So for a local A/B, read the report with and
-without `MAX_LOW_FREQ_PCT`, and re-run any signal that the filter removes
-before believing it.
+A signal on a path the change does not touch is not proof of a cost to that
+path. All cases of a corpus run in one process, in a fixed order, for a fixed
+time each; a change that makes one case faster also changes how much garbage
+and JIT state the next case starts with. In one local A/B of a fromJson
+change, `toBinary/stress` (which runs right after `fromJson` of the previous
+fixture) was flagged −4.8 %; it stayed at −3…−4 % in the pairs without
+frequency drops, but ran at −0.2 %, p 0.86 when measured alone — which
+removes the preceding cases and the noise at once, so it cannot tell them
+apart. The control is two filtered runs: the affected operation alone, and
+the affected operation together with the changed one.
+
+On a loaded host, also read the report with `MAX_LOW_FREQ_PCT`: frequency
+drops widen the pair noise, and the A/A calibration of a quiet host does not
+describe them.
 
 ## Calibration and self-test
 
