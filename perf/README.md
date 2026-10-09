@@ -122,6 +122,15 @@ pairs is a smoke run, not a measurement.
 For sub-microsecond cases each sample also contains tinybench's fixed timing
 overhead, on both sides, which shrinks the visible ratio slightly.
 
+On a loaded host the correction is not enough on its own. In one local A/B
+(load ~20-40, 38 of 62 passes more than 20 % of their time below the pinned
+frequency) `toBinary/stress` was flagged −4.8 % for a change that does not
+touch that path; with pairs under frequency drops removed
+(`MAX_LOW_FREQ_PCT=30`) it was −3.2 %, p 0.15, and a targeted re-run of that
+case alone gave −0.2 %, p 0.86. So for a local A/B, read the report with and
+without `MAX_LOW_FREQ_PCT`, and re-run any signal that the filter removes
+before believing it.
+
 ## Calibration and self-test
 
 ```sh
