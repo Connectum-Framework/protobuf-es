@@ -1068,6 +1068,65 @@ void suite("parsing duplicate keys", () => {
       { message: /oneof_int32_field from JSON: set multiple times/ },
     );
   });
+  void test("rejects a duplicate field when the JSON name comes first", () => {
+    assert.throws(
+      () =>
+        fromJson(proto3_ts.Proto3MessageSchema, {
+          singularStringField: "a",
+          singular_string_field: "b",
+        }),
+      { message: /singular_string_field from JSON: set multiple times/ },
+    );
+  });
+  void test("reports an invalid first occurrence before the duplicate", () => {
+    // Keys are processed in order: the first occurrence of a duplicated field
+    // is decoded before the second one is rejected, so an invalid value in the
+    // first occurrence is the error that surfaces.
+    assert.throws(
+      () =>
+        fromJson(proto3_ts.Proto3MessageSchema, {
+          singularStringField: 123,
+          singular_string_field: "b",
+        }),
+      (err: unknown) =>
+        err instanceof Error &&
+        /singular_string_field from JSON/.test(err.message) &&
+        !/set multiple times/.test(err.message),
+    );
+  });
+  void test("accepts one member in each of several oneofs", () => {
+    const msg = fromJson(OneofMessageSchema, {
+      e: "ONEOF_ENUM_A",
+      value: 1,
+      foo: { name: "a" },
+    });
+    assert.strictEqual(msg.enum.case, "e");
+    assert.strictEqual(msg.scalar.case, "value");
+    assert.strictEqual(msg.message.case, "foo");
+  });
+  void test("rejects two members of a oneof that is not the first one set", () => {
+    // The first oneof seen in a message and any later ones are tracked
+    // separately; a conflict must be detected in either.
+    assert.throws(
+      () =>
+        fromJson(OneofMessageSchema, {
+          e: "ONEOF_ENUM_A",
+          value: 1,
+          error: "x",
+        }),
+      { message: /oneof set multiple times by value and error/ },
+    );
+    assert.throws(
+      () =>
+        fromJson(OneofMessageSchema, {
+          value: 1,
+          foo: { name: "a" },
+          e: "ONEOF_ENUM_A",
+          bar: { a: 1 },
+        }),
+      { message: /oneof set multiple times by foo and bar/ },
+    );
+  });
   void suite("merge", () => {
     void test("rejects duplicate keys within a single document", () => {
       const target = create(proto3_ts.Proto3MessageSchema);
