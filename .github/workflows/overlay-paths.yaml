@@ -1,0 +1,25 @@
+name: overlay-paths
+
+# Fork-only. The fork's main is upstream's main plus a linear overlay of two
+# kinds of commits: library changes (later proposed upstream by cherry-pick)
+# and fork tooling (benchmarks, CI, perf scripts), which must never reach an
+# upstream pull request. Keeping each pull request to one kind is what makes
+# the cherry-pick of a library change carry only library files. Rules and
+# path lists: perf/overlay-paths.sh.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: One kind of change per pull request
+        run: perf/overlay-paths.sh ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}

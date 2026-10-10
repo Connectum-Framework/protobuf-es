@@ -1,0 +1,55 @@
+name: bench-aa
+
+# Fork-only. Calibrates the noise of GitHub-hosted runners: measures main
+# against itself with the same procedure as bench-ab (perf/measure.sh), and
+# publishes the per-case noise band (perf/aa-noise.sh) as an artifact that
+# bench-ab reads to decide what counts as a signal. Run weekly, after every
+# sync with upstream, and by hand. See perf/README.md.
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      passes:
+        description: "Measured pairs per corpus"
+        default: "30"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-aa
+  cancel-in-progress: false
+
+jobs:
+  aa:
+    name: bench-aa (${{ matrix.corpus }})
+    runs-on: ubuntu-latest
+    # 30 pairs of the upstream corpus take about 2 x 30 x 104 s locally; the
+    # limit leaves room for a slower runner and the two builds.
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        corpus: [upstream, realistic]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Measure main against itself
+        run: perf/ci-measure.sh ${{ matrix.corpus }} "$GITHUB_SHA" "$GITHUB_SHA" "${{ inputs.passes || '30' }}" "$RUNNER_TEMP/bench-out"
+      - name: Noise band
+        run: |
+          perf/report.sh "$RUNNER_TEMP/bench-out" > /dev/null
+          perf/aa-noise.sh "$RUNNER_TEMP/bench-out/summary.json" > "$RUNNER_TEMP/bench-out/aa-noise.json"
+          cat "$RUNNER_TEMP/bench-out/report.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench-aa-${{ matrix.corpus }}
+          path: ${{ runner.temp }}/bench-out
+          retention-days: 90

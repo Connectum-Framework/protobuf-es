@@ -423,6 +423,15 @@ export const cases: Record<string, Case> = {
   ...messageCasesFromInit("user-normal", UserSchema, USER_NORMAL),
 };
 
+// Production-shaped payloads are opt-in (BENCH_REALISTIC=1). Building them
+// compiles some forty more message types in this process, which changes the
+// JIT state the cases above are measured under; without the variable the
+// corpus is exactly upstream's, so its numbers stay comparable to theirs.
+if (process.env.BENCH_REALISTIC === "1") {
+  const { realisticCases } = await import("./realistic-cases.js");
+  Object.assign(cases, realisticCases());
+}
+
 // List of case entries whose name matches any of the patterns.
 export function select(patterns: string[]): [string, Case][] {
   const entries = Object.entries(cases);
