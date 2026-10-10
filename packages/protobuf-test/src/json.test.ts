@@ -1079,9 +1079,7 @@ void suite("parsing duplicate keys", () => {
     );
   });
   void test("reports an invalid first occurrence before the duplicate", () => {
-    // Keys are processed in order: the first occurrence of a duplicated field
-    // is decoded before the second one is rejected, so an invalid value in the
-    // first occurrence is the error that surfaces.
+    // The first occurrence is decoded before the duplicate is rejected.
     assert.throws(
       () =>
         fromJson(proto3_ts.Proto3MessageSchema, {
@@ -1105,8 +1103,7 @@ void suite("parsing duplicate keys", () => {
     assert.strictEqual(msg.message.case, "foo");
   });
   void test("rejects two members of a oneof that is not the first one set", () => {
-    // The first oneof seen in a message and any later ones are tracked
-    // separately; a conflict must be detected in either.
+    // A conflict is detected in any oneof, not only in the first one set.
     assert.throws(
       () =>
         fromJson(OneofMessageSchema, {

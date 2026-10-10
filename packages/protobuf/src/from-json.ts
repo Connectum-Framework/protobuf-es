@@ -279,10 +279,8 @@ interface CompiledFieldEntry {
   // A oneof member that is a scalar field skips JSON null, see conformance
   // test Required.Proto3.JsonInput.OneofFieldNull{First,Second}.
   oneofScalarNullSkip: boolean;
-  // True if both the proto name and the JSON name of the field are keys of
-  // this entry. A field can only be set twice through two distinct keys (an
-  // object cannot hold the same key twice), so only such fields need a
-  // duplicate check.
+  // Whether the JSON name differs from the proto name. Only then can a JSON
+  // object set the field twice.
   aliased: boolean;
 }
 
@@ -318,11 +316,8 @@ function compileMessage(desc: DescMessage): CompiledJsonReader {
         `cannot decode ${descString} from JSON: ${formatVal(json)}`,
       );
     }
-    // Duplicate detection runs for every decoded message, so it avoids
-    // allocating in the common case. Fields set by both of their keys are
-    // tracked in a set that is only created when the object holds both keys
-    // of some field. The first oneof that is set is tracked in two locals; a
-    // map is only created when a second oneof is set in the same message.
+    // Only allocated when needed: most objects never set a field twice, and
+    // most messages set at most one oneof.
     let fieldSeen: Set<DescField> | undefined;
     let firstOneof: DescOneof | undefined;
     let firstOneofField: DescField | undefined;
@@ -341,15 +336,13 @@ function compileMessage(desc: DescMessage): CompiledJsonReader {
             jsonKey === field.name ? field.jsonName : field.name,
           )
         ) {
-          // The field is set by its proto name and by its JSON name. The first
-          // of the two keys is read as usual, the second one is an error.
-          // Checked before the null-skip below so that a null entry still counts.
+          // The object holds both keys of this field; if both set it, the
+          // second one is an error. Checked before the null-skip below so
+          // that a null entry still counts.
           if (fieldSeen?.has(field)) {
             throw new FieldError(field, "set multiple times");
           }
-          if (fieldSeen === undefined) {
-            fieldSeen = new Set();
-          }
+          fieldSeen ??= new Set();
           fieldSeen.add(field);
         }
         if (entry.oneofScalarNullSkip && jsonValue === null) {
@@ -369,9 +362,7 @@ function compileMessage(desc: DescMessage): CompiledJsonReader {
             firstOneof = oneof;
             firstOneofField = field;
           } else {
-            if (oneofSeen === undefined) {
-              oneofSeen = new Map();
-            }
+            oneofSeen ??= new Map();
             oneofSeen.set(oneof, field);
           }
         }
@@ -411,23 +402,9 @@ function compileMessage(desc: DescMessage): CompiledJsonReader {
       oneof: field.oneof,
       oneofScalarNullSkip:
         field.oneof !== undefined && field.fieldKind == "scalar",
-      aliased: false,
+      aliased: field.jsonName !== field.name,
     };
     fieldsByJsonKey.set(field.name, entry).set(field.jsonName, entry);
-  }
-  // A later field may take over a key of an earlier one, so the alias is
-  // decided once all keys are registered: only when both keys of a field
-  // still resolve to that field can one object set it twice.
-  for (const field of desc.fields) {
-    const entry = fieldsByJsonKey.get(field.name);
-    if (
-      entry !== undefined &&
-      entry.field === field &&
-      field.jsonName !== field.name &&
-      fieldsByJsonKey.get(field.jsonName) === entry
-    ) {
-      entry.aliased = true;
-    }
   }
   return compiled;
 }
