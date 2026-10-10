@@ -780,29 +780,27 @@ export class BinaryReader {
    * `strict` is true, throw on invalid UTF-8 instead of substituting U+FFFD.
    */
   string(strict?: boolean): string {
-    // Same steps and errors as bytes(), without creating a view: the ASCII
-    // fast path reads the buffer directly, and only the UTF-8 decoder, which
-    // needs a Uint8Array of the string's bytes, gets a subarray.
+    // Like bytes(), but the ASCII fast path reads the buffer without a view.
     const len = this.uint32();
     const start = this.pos;
     this.pos += len;
     this.assertBounds();
+    const buf = this.buf;
 
     // Fast path for ASCII.
     if (len <= ASCII_MAX_LENGTH) {
-      const buf = this.buf;
       const codes = new Array<number>(len);
       for (let i = 0; i < len; i++) {
         const byte = buf[start + i];
         if (byte > 0x7f) {
-          return this.decodeUtf8(buf.subarray(start, start + len), strict);
+          return this.decodeUtf8(buf.subarray(start, this.pos), strict);
         }
         codes[i] = byte;
       }
       return String.fromCharCode.apply(String, codes);
     }
 
-    return this.decodeUtf8(this.buf.subarray(start, start + len), strict);
+    return this.decodeUtf8(buf.subarray(start, this.pos), strict);
   }
 }
 
